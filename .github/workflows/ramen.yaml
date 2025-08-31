@@ -11,7 +11,17 @@ name: ramen
 
 on:
   push:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - 'CODEOWNERS'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - 'CODEOWNERS'
   schedule:
     - cron: '0 0 * * *'
 
