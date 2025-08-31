@@ -11,17 +11,7 @@ name: tools
 
 on:
   push:
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-      - 'CODEOWNERS'
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-      - 'CODEOWNERS'
   schedule:
     - cron: '0 0 * * *'
 
@@ -30,8 +20,29 @@ defaults:
     shell: bash
 
 jobs:
+  # Check if non-documentation files have changed
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code-changed: ${{ steps.changes.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for code changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -qvE '^(docs/|.*\.md$|LICENSE$|CODEOWNERS$)'; then
+            echo "code=true" >> $GITHUB_OUTPUT
+          else
+            echo "code=false" >> $GITHUB_OUTPUT
+          fi
+
   drenv-linux:
     name: drenv
+    needs: changes
+    if: needs.changes.outputs.code-changed == 'true'
     strategy:
       matrix:
         os:
@@ -105,6 +116,8 @@ jobs:
 
   drenv-macos:
     name: drenv
+    needs: changes
+    if: needs.changes.outputs.code-changed == 'true'
     strategy:
       matrix:
         os:
@@ -157,6 +170,8 @@ jobs:
 
   ramendev:
     name: ramendev
+    needs: changes
+    if: needs.changes.outputs.code-changed == 'true'
     strategy:
       matrix:
         os:
