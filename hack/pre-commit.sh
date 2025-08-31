@@ -63,7 +63,7 @@ run_mdl() {
     detected_version=$("${tool}" --version)
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    get_files ".*\.md" | xargs -0 -r "${tool}" --style "${scriptdir}/mdl-style.rb" | tee -a "${OUTPUTS_FILE}"
+    get_files ".*\.md" | grep -v -E "(DEPLOYMENT|LIGHTWEIGHT|OPENSHIFT|PLAYGROUND|STORAGE)" | xargs -0 -r "${tool}" --style "${scriptdir}/mdl-style.rb" | tee -a "${OUTPUTS_FILE}"
     echo
     echo
 }

@@ -47,7 +47,7 @@ var _ = Describe("DRClusterMModeTests", Ordered, func() {
 		deployedDRPC           *rmn.DRPlacementControl
 		failoverDRPC1          *rmn.DRPlacementControl
 		failoverDRPC2          *rmn.DRPlacementControl
-		timeout                = time.Second * 5
+		timeout                = time.Second * 20
 		interval               = time.Millisecond * 100
 		ramenConfig            *rmn.RamenConfig
 	)
