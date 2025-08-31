@@ -231,3 +231,6 @@ A: [OPENSHIFT_SETUP.md](OPENSHIFT_SETUP.md) Mode 1 for enterprise production
 | **Production planning** | [OPENSHIFT_SETUP.md](OPENSHIFT_SETUP.md) | 1-2 days |
 
 Choose the guide that matches your timeline and resource constraints!
+## Testing Conditional CI
+
+This commit only changes documentation to test the new conditional workflow system.
