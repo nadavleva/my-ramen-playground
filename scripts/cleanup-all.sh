@@ -111,6 +111,36 @@ rm -f /tmp/k3s-*.log 2>/dev/null && log_info "Removed k3s logs" || true
 rm -f gather.*/ -rf 2>/dev/null && log_info "Removed kubectl-gather directories" || true
 
 log_success "Cleanup completed successfully!"
+
+# Validate cleanup
+log_step "Validating cleanup completion..."
+log_info "🔍 Cleanup verification:"
+
+# Check kind clusters
+if kind get clusters 2>/dev/null | grep -q .; then
+    remaining_clusters=$(kind get clusters 2>/dev/null | wc -l)
+    log_warning "   ⚠️  $remaining_clusters kind clusters still exist"
+    kind get clusters | sed 's/^/      /'
+else
+    log_info "   ✅ No kind clusters remaining"
+fi
+
+# Check port-forwards
+if ps aux | grep -q "kubectl.*port-forward"; then
+    log_warning "   ⚠️  Port-forwards still running:"
+    ps aux | grep "kubectl.*port-forward" | grep -v grep | awk '{print "      " $11 " " $12 " " $13}'
+else
+    log_info "   ✅ No port-forwards running"
+fi
+
+# Check Docker images (informational)
+ramen_images=$(docker images | grep -E "(ramen|minio)" | wc -l)
+if [ "$ramen_images" -gt 0 ]; then
+    log_info "   ℹ️  $ramen_images RamenDR/MinIO Docker images remain (optional cleanup)"
+else
+    log_info "   ✅ No RamenDR/MinIO Docker images found"
+fi
+
 echo ""
 echo "=============================================="
 echo "🎯 Environment Ready for Fresh Demo"

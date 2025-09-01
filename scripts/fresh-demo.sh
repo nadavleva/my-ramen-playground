@@ -74,6 +74,17 @@ fi
 echo ""
 log_success "Kind clusters ready!"
 
+# Validate kind clusters
+log_step "Validating cluster setup..."
+log_info "Checking kind clusters:"
+if kind get clusters 2>/dev/null | grep -q "ramen-"; then
+    kind get clusters | grep "ramen-" | sed 's/^/   ✅ /'
+    log_success "All required clusters are running"
+else
+    log_error "Kind clusters validation failed"
+    exit 1
+fi
+
 # Step 3: Install operators
 log_step "Step 3/4: Installing RamenDR operators"
 if [ -f "$SCRIPT_DIR/quick-install.sh" ]; then
@@ -85,6 +96,27 @@ fi
 
 echo ""
 log_success "RamenDR operators installed!"
+
+# Validate operator installation
+log_step "Validating operator installation..."
+log_info "Checking RamenDR CRDs:"
+if kubectl get crd volumereplicationgroups.ramendr.openshift.io >/dev/null 2>&1; then
+    log_info "   ✅ VolumeReplicationGroup CRD installed"
+else
+    log_warning "   ⚠️  VolumeReplicationGroup CRD not found"
+fi
+
+log_info "Checking operator pods:"
+for context in kind-ramen-hub kind-ramen-dr1 kind-ramen-dr2; do
+    kubectl config use-context $context >/dev/null 2>&1
+    if kubectl get pods -n ramen-system >/dev/null 2>&1; then
+        pod_count=$(kubectl get pods -n ramen-system --no-headers 2>/dev/null | wc -l)
+        log_info "   ✅ $context: $pod_count operator pods"
+    else
+        log_warning "   ⚠️  $context: no ramen-system namespace"
+    fi
+done
+log_success "Operator validation completed"
 
 # Step 4: Run demo
 log_step "Step 4/4: Running RamenDR demo"
@@ -100,6 +132,50 @@ echo ""
 echo "=============================================="
 echo "🎉 Fresh RamenDR Demo Complete!"
 echo "=============================================="
+echo ""
+
+# Final comprehensive validation
+log_step "Final Environment Validation"
+log_info "🔍 Complete environment status:"
+
+# Check clusters
+log_info "📊 Clusters:"
+kind get clusters | grep "ramen-" | sed 's/^/   ✅ /'
+
+# Check operators across all clusters  
+log_info "🤖 Operators:"
+for context in kind-ramen-hub kind-ramen-dr1 kind-ramen-dr2; do
+    kubectl config use-context $context >/dev/null 2>&1
+    if kubectl get pods -n ramen-system --no-headers 2>/dev/null | grep -q Running; then
+        running_pods=$(kubectl get pods -n ramen-system --no-headers 2>/dev/null | grep Running | wc -l)
+        log_info "   ✅ $context: $running_pods pods running"
+    else
+        log_info "   ⚠️  $context: no running pods"
+    fi
+done
+
+# Check MinIO
+kubectl config use-context kind-ramen-hub >/dev/null 2>&1
+if kubectl get pods -n minio-system -l app=minio 2>/dev/null | grep -q Running; then
+    log_info "💾 Storage:"
+    log_info "   ✅ MinIO S3 storage running"
+else
+    log_info "💾 Storage:"
+    log_info "   ⚠️  MinIO not running"
+fi
+
+# Check demo app
+if kubectl get pods -n nginx-test 2>/dev/null | grep -q Running; then
+    log_info "🚀 Demo Application:"
+    log_info "   ✅ nginx-test application running"
+    if kubectl get vrg -n nginx-test 2>/dev/null | grep -q nginx-test-vrg; then
+        log_info "   ✅ VolumeReplicationGroup active"
+    fi
+else
+    log_info "🚀 Demo Application:"
+    log_info "   ⚠️  nginx-test not found"
+fi
+
 echo ""
 log_success "Environment is now running with:"
 echo "   • 3 kind clusters (hub + 2 DR clusters)"

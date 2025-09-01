@@ -23,11 +23,31 @@ examples/
 
 ## 🚀 Quick Start
 
-### **Prerequisites**
+### **📋 Prerequisites**
 1. **3 Kubernetes clusters** (1 hub + 2 DR clusters)
 2. **RamenDR operators** installed on all clusters
 3. **VolSync** installed on DR clusters  
 4. **VolumeReplication CRDs** installed
+
+### **⚡ Automated Setup (Recommended)**
+
+For a complete automated setup from scratch:
+
+```bash
+# One-command setup: clusters + operators + demo
+./scripts/fresh-demo.sh
+
+# Or step-by-step:
+./scripts/cleanup-all.sh      # Clean existing environment
+./scripts/setup.sh kind       # Setup kind clusters  
+./scripts/quick-install.sh    # Install RamenDR operators
+./examples/ramendr-demo.sh    # Run demo
+```
+
+**📖 See Also:**
+- [`AUTOMATED_DEMO_QUICKSTART.md`](AUTOMATED_DEMO_QUICKSTART.md) - Quick demo guide
+- [`COMPLETE_AUTOMATED_SETUP.md`](COMPLETE_AUTOMATED_SETUP.md) - Full setup guide  
+- [`RAMENDR_ARCHITECTURE_GUIDE.md`](RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture & code deep-dive
 
 ### **Step 1: Deploy MinIO S3 Storage**
 ```bash
