@@ -335,17 +335,219 @@ drenv start envs/ultra-light.yaml
 
 ## 🐋 Option 3: kind Ultra-Lightweight
 
+### **🛠️ Install kind and Dependencies**
+
+Before creating clusters, you need to install **kind** and **Docker**:
+
+```bash
+#!/bin/bash
+# install-kind.sh - Complete kind installation script
+
+echo "🚀 Installing kind (Kubernetes in Docker) and dependencies..."
+
+# Function to detect OS and architecture
+detect_platform() {
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    ARCH=$(uname -m)
+    
+    case $ARCH in
+        x86_64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *) echo "❌ Unsupported architecture: $ARCH"; exit 1 ;;
+    esac
+    
+    echo "📋 Detected platform: $OS-$ARCH"
+}
+
+# Install Docker if not present
+install_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        echo "✅ Docker already installed: $(docker --version)"
+        return
+    fi
+    
+    echo "🐳 Installing Docker..."
+    case $OS in
+        linux)
+            # For Ubuntu/Debian
+            if command -v apt >/dev/null 2>&1; then
+                sudo apt update
+                sudo apt install -y docker.io
+                sudo systemctl start docker
+                sudo systemctl enable docker
+                sudo usermod -aG docker $USER
+                echo "⚠️  Please logout and login again for Docker group membership to take effect"
+            # For RHEL/CentOS/Fedora  
+            elif command -v dnf >/dev/null 2>&1; then
+                sudo dnf install -y docker
+                sudo systemctl start docker
+                sudo systemctl enable docker
+                sudo usermod -aG docker $USER
+                echo "⚠️  Please logout and login again for Docker group membership to take effect"
+            else
+                echo "❌ Please install Docker manually: https://docs.docker.com/engine/install/"
+                exit 1
+            fi
+            ;;
+        darwin)
+            echo "📱 Please install Docker Desktop for Mac: https://docs.docker.com/desktop/mac/install/"
+            echo "   Or install via Homebrew: brew install --cask docker"
+            exit 1
+            ;;
+        *)
+            echo "❌ Unsupported OS: $OS"
+            exit 1
+            ;;
+    esac
+}
+
+# Install kubectl if not present
+install_kubectl() {
+    if command -v kubectl >/dev/null 2>&1; then
+        echo "✅ kubectl already installed: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
+        return
+    fi
+    
+    echo "⚙️ Installing kubectl..."
+    case $OS in
+        linux)
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+            ;;
+        darwin)
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/$ARCH/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+            ;;
+    esac
+}
+
+# Install kind
+install_kind() {
+    if command -v kind >/dev/null 2>&1; then
+        echo "✅ kind already installed: $(kind version)"
+        return
+    fi
+    
+    echo "🐋 Installing kind..."
+    
+    # Get latest kind version
+    KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    case $OS in
+        linux)
+            curl -Lo ./kind https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-$OS-$ARCH
+            ;;
+        darwin)
+            curl -Lo ./kind https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-$OS-$ARCH
+            ;;
+    esac
+    
+    chmod +x ./kind
+    sudo mv ./kind /usr/local/bin/
+}
+
+# Verify installations
+verify_installation() {
+    echo ""
+    echo "🔍 Verifying installation..."
+    
+    # Check Docker
+    if docker --version >/dev/null 2>&1; then
+        echo "✅ Docker: $(docker --version)"
+    else
+        echo "❌ Docker not found"
+        return 1
+    fi
+    
+    # Check kubectl  
+    if kubectl version --client >/dev/null 2>&1; then
+        echo "✅ kubectl: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
+    else
+        echo "❌ kubectl not found"
+        return 1
+    fi
+    
+    # Check kind
+    if kind version >/dev/null 2>&1; then
+        echo "✅ kind: $(kind version)"
+    else
+        echo "❌ kind not found"
+        return 1
+    fi
+    
+    # Test Docker daemon
+    if docker ps >/dev/null 2>&1; then
+        echo "✅ Docker daemon running"
+    else
+        echo "⚠️  Docker daemon not running or no permission"
+        echo "   Try: sudo systemctl start docker"
+        echo "   Or logout/login if you were just added to docker group"
+    fi
+}
+
+# Main installation flow
+main() {
+    detect_platform
+    install_docker
+    install_kubectl
+    install_kind
+    verify_installation
+    
+    echo ""
+    echo "🎉 Installation complete!"
+    echo "📝 Next steps:"
+    echo "   1. If Docker was just installed, logout and login again"
+    echo "   2. Verify Docker works: docker run hello-world"
+    echo "   3. Run the kind cluster setup script below"
+}
+
+# Run main function
+main
+```
+
+### **💡 Quick Installation (one-liner)**
+
+For experienced users, you can also install kind quickly:
+
+```bash
+# Linux/macOS one-liner
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')/kind-$(uname)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && chmod +x ./kind && sudo mv ./kind /usr/local/bin/
+```
+
 ### **Minimal kind Setup**
 
 ```bash
 #!/bin/bash
 # kind-minimal-setup.sh
 
-# Clean up any existing kind clusters first
-echo "🧹 Cleaning up existing kind clusters..."
-kind delete cluster --name ramen-hub 2>/dev/null || true
-kind delete cluster --name ramen-dr1 2>/dev/null || true  
-kind delete cluster --name ramen-dr2 2>/dev/null || true
+# Check for existing kind clusters
+echo "🔍 Checking for existing kind clusters..."
+existing_clusters=$(kind get clusters 2>/dev/null || echo "")
+
+if [ -n "$existing_clusters" ]; then
+    echo "📋 Found existing kind clusters:"
+    echo "$existing_clusters"
+    echo ""
+    echo "⚠️  WARNING: This script will remove ALL kind clusters to avoid conflicts!"
+    echo "💡 Press Ctrl+C within 10 seconds to cancel if you want to keep them..."
+    echo ""
+    for i in {10..1}; do
+        echo -ne "\r⏱️  Continuing in $i seconds... "
+        sleep 1
+    done
+    echo -e "\n"
+    
+    echo "🧹 Cleaning up ALL existing kind clusters..."
+    # Delete all existing clusters
+    for cluster in $existing_clusters; do
+        echo "🗑️  Deleting cluster: $cluster"
+        kind delete cluster --name "$cluster"
+    done
+else
+    echo "✅ No existing kind clusters found"
+fi
 
 # Clean up any leftover storage directories
 sudo rm -rf /tmp/ramen-{hub,dr1,dr2} 2>/dev/null || true
@@ -401,6 +603,53 @@ provisioner: kubernetes.io/no-provisioner
 volumeBindingMode: WaitForFirstConsumer
 EOF
 done
+```
+
+### **💡 Alternative: Selective Cleanup**
+
+If you want **more control** over which clusters to delete, use this alternative approach:
+
+```bash
+#!/bin/bash
+# kind-selective-setup.sh
+
+# List existing clusters for review
+echo "📋 Current kind clusters:"
+kind get clusters 2>/dev/null || echo "  (none found)"
+echo ""
+
+echo "🤔 Choose cleanup option:"
+echo "  1) Clean only RamenDR clusters (ramen-hub, ramen-dr1, ramen-dr2)"
+echo "  2) Clean ALL kind clusters"  
+echo "  3) Skip cleanup (manual management)"
+echo ""
+read -p "Enter choice (1-3): " choice
+
+case $choice in
+    1)
+        echo "🧹 Cleaning only RamenDR clusters..."
+        kind delete cluster --name ramen-hub 2>/dev/null || true
+        kind delete cluster --name ramen-dr1 2>/dev/null || true  
+        kind delete cluster --name ramen-dr2 2>/dev/null || true
+        ;;
+    2)
+        echo "🧹 Cleaning ALL kind clusters..."
+        for cluster in $(kind get clusters 2>/dev/null); do
+            echo "🗑️  Deleting cluster: $cluster"
+            kind delete cluster --name "$cluster"
+        done
+        ;;
+    3)
+        echo "⏭️  Skipping cleanup - you'll handle conflicts manually"
+        ;;
+    *)
+        echo "❌ Invalid choice, exiting"
+        exit 1
+        ;;
+esac
+
+# Continue with RamenDR cluster creation...
+# (rest of script continues same as above)
 ```
 
 ### **Simulated Storage Replication**
