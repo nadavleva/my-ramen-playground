@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# RamenConfig - Defines S3 profiles for RamenDR metadata storage
+# This is the missing piece that connects DRClusters to actual S3 storage
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-dr-cluster-config
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: config
+data:
+  ramen_manager_config.yaml: |
+    # RamenDR Manager Configuration
+    ramenControllerType: dr-cluster
+    maxConcurrentReconciles: 1
+    drClusterOperator:
+      deploymentAutomationEnabled: true
+      s3StoreProfiles:
+      - s3ProfileName: minio-s3
+        s3Bucket: ramen-metadata
+        s3Region: us-east-1
+        s3Endpoint: http://minio.minio-system.svc.cluster.local:9000
+        s3SecretRef:
+          name: ramen-s3-secret
+          namespace: ramen-system
+
+---
+# Hub operator config (if needed)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-hub-operator-config
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: config
+data:
+  ramen_manager_config.yaml: |
+    # RamenDR Hub Manager Configuration
+    ramenControllerType: dr-hub
+    maxConcurrentReconciles: 1
+    drClusterOperator:
+      deploymentAutomationEnabled: true
+      s3StoreProfiles:
+      - s3ProfileName: minio-s3
+        s3Bucket: ramen-metadata
+        s3Region: us-east-1
+        s3Endpoint: http://minio.minio-system.svc.cluster.local:9000
+        s3SecretRef:
+          name: ramen-s3-secret
+          namespace: ramen-system

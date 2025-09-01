@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Correct VolumeReplicationGroup for nginx-test application
+# This demonstrates RamenDR S3 metadata backup functionality
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: VolumeReplicationGroup
+metadata:
+  name: nginx-test-vrg
+  namespace: nginx-test
+  labels:
+    app: nginx-test
+    ramendr.openshift.io/demo: "true"
+spec:
+  # Required: PVC selector to identify which PVCs to protect
+  pvcSelector:
+    matchLabels:
+      app: nginx-test
+  
+  # Required: Replication state (primary = active, secondary = standby)  
+  replicationState: primary
+  
+  # Required: S3 profiles for metadata storage
+  s3Profiles:
+  - minio-s3
+  
+  # Optional: Action for DR operations
+  action: Relocate
+  
+  # Optional: Async replication configuration
+  async:
+    # Required for async: scheduling interval for replication
+    schedulingInterval: 5m
+    
+    # Volume replication class selector
+    replicationClassSelector:
+      matchLabels:
+        ramendr.openshift.io/replicationID: ramen-volsync
+        
+    # Volume snapshot class selector (for point-in-time backups)
+    volumeSnapshotClassSelector:
+      matchLabels:
+        velero.io/csi-volumesnapshot-class: "true"
+  
+  # Optional: Kubernetes object protection (in addition to PVCs)
+  kubeObjectProtection:
+    # Capture interval for Kubernetes metadata
+    captureInterval: 10m
+    
+    # Select all objects in the namespace for protection
+    kubeObjectSelector:
+      matchLabels:
+        app: nginx-test
