@@ -23,7 +23,8 @@ examples/
 
 ## 🚀 Quick Start
 
-### **📋 Prerequisites**
+
+### **Prerequisites**
 1. **3 Kubernetes clusters** (1 hub + 2 DR clusters)
 2. **RamenDR operators** installed on all clusters
 3. **VolSync** installed on DR clusters  
