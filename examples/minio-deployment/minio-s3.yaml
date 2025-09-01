@@ -78,7 +78,7 @@ spec:
             port: 9000
           initialDelaySeconds: 10
           periodSeconds: 10
-        volumes:
+      volumes:
       - name: storage
         emptyDir: {}
         # For persistent storage, use:
