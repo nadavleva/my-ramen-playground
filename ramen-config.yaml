@@ -1,0 +1,61 @@
+---
+# DRCluster for hub cluster
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-hub-cluster
+spec:
+  s3ProfileName: minio-s3-profile
+  region: us-east-1
+---
+# DRCluster for DR cluster
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr1-cluster
+spec:
+  s3ProfileName: minio-s3-profile
+  region: us-west-1
+---
+# Basic DRPolicy for testing
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPolicy
+metadata:
+  name: demo-dr-policy
+spec:
+  drClusters:
+  - ramen-hub-cluster
+  - ramen-dr1-cluster
+  schedulingInterval: 5m
+  # Using labels that we can apply to any storage class
+  replicationClassSelector:
+    matchLabels:
+      ramen.io/replicationClass: "demo"
+  volumeSnapshotClassSelector:
+    matchLabels:
+      ramen.io/volumeSnapshotClass: "demo"
+---
+# S3 Profile for MinIO (when it's ready)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-s3-secret
+  namespace: ramen-system
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minio
+  AWS_SECRET_ACCESS_KEY: minio123
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: S3Profile
+metadata:
+  name: minio-s3-profile
+  namespace: ramen-system
+spec:
+  s3ProfileName: minio-s3-profile
+  s3Bucket: ramen-bucket
+  s3CompatibleEndpoint: http://minio.minio.svc.cluster.local:9000
+  s3Region: us-east-1
+  s3SecretRef:
+    name: minio-s3-secret
+    namespace: ramen-system

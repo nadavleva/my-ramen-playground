@@ -1,0 +1,41 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# DRPolicy for RamenDR Cluster Replication
+# Defines the disaster recovery policy governing replication between clusters
+#
+# Usage:
+#   kubectl apply -f drpolicy.yaml
+#
+# Prerequisites:
+#   - DRCluster resources created (drclusters.yaml)
+#   - VolSync installed on all DR clusters
+#   - VolumeReplicationClass resources configured
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPolicy
+metadata:
+  name: ramen-dr-policy
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: dr-policy
+spec:
+  # List of participating DR clusters (exactly 2 required)
+  drClusters:
+  - ramen-dr1
+  - ramen-dr2
+
+  # Replication class selector
+  # Selects VolumeReplicationClass resources for this policy
+  replicationClassSelector:
+    matchLabels:
+      ramendr.openshift.io/replicationID: ramen-volsync
+
+  # Scheduling interval for periodic operations (required)
+  schedulingInterval: 5m
+
+  # Optional: Policy-specific configurations
+  # asyncSchedulingInterval: 60m
+  # syncSchedulingInterval: 5m
