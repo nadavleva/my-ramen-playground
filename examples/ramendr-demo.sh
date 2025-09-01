@@ -175,7 +175,13 @@ main() {
         
         log_success "MinIO S3 storage deployed and configured"
     fi
-    
+    # Step 1: Ensure MinIO is running
+    log_step "Step 1: Verifying MinIO S3 storage is ready..."
+    if ! kubectl get pod -n minio-system -l app=minio | grep -q Running; then
+        log_error "MinIO is not running. Please run: ./deploy-ramendr-s3.sh first"
+        exit 1
+    fi
+    log_success "MinIO is running" 
     # Step 2: Deploy test application with correct labels
     log_step "Step 2: Deploying nginx test application with PVC..."
     kubectl apply -f test-application/nginx-with-pvc.yaml
