@@ -341,6 +341,17 @@ drenv start envs/ultra-light.yaml
 #!/bin/bash
 # kind-minimal-setup.sh
 
+# Clean up any existing kind clusters first
+echo "🧹 Cleaning up existing kind clusters..."
+kind delete cluster --name ramen-hub 2>/dev/null || true
+kind delete cluster --name ramen-dr1 2>/dev/null || true  
+kind delete cluster --name ramen-dr2 2>/dev/null || true
+
+# Clean up any leftover storage directories
+sudo rm -rf /tmp/ramen-{hub,dr1,dr2} 2>/dev/null || true
+
+echo "✅ Starting fresh kind cluster setup..."
+
 # Create kind clusters with minimal resources
 cat > hub-kind.yaml <<EOF
 kind: Cluster
