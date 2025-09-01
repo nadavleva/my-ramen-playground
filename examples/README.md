@@ -44,10 +44,15 @@ For a complete automated setup from scratch:
 ./examples/ramendr-demo.sh    # Run demo
 ```
 
-**📖 See Also:**
+**📖 Documentation & Demos:**
 - [`AUTOMATED_DEMO_QUICKSTART.md`](AUTOMATED_DEMO_QUICKSTART.md) - Quick demo guide
 - [`COMPLETE_AUTOMATED_SETUP.md`](COMPLETE_AUTOMATED_SETUP.md) - Full setup guide  
 - [`RAMENDR_ARCHITECTURE_GUIDE.md`](RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture & code deep-dive
+
+**🎬 Demo & Presentation Resources:**
+- [`demo-assistant.sh`](demo-assistant.sh) - Interactive demo assistant for presentations
+- [`DEMO_FLOW_GUIDE.md`](DEMO_FLOW_GUIDE.md) - Complete demo flow with talking points
+- [`DEMO_CHEAT_SHEET.md`](DEMO_CHEAT_SHEET.md) - Quick command reference for demos
 
 ### **Step 1: Deploy MinIO S3 Storage**
 ```bash

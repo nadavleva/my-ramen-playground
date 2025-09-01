@@ -171,6 +171,11 @@ For a complete hands-on experience with RamenDR:
 - [`examples/RAMENDR_ARCHITECTURE_GUIDE.md`](examples/RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture deep-dive
 - [`examples/`](examples/) - Complete configuration examples
 
+**🎬 Demo & Presentations:**
+- [`examples/demo-assistant.sh`](examples/demo-assistant.sh) - Interactive presentation assistant
+- [`examples/DEMO_FLOW_GUIDE.md`](examples/DEMO_FLOW_GUIDE.md) - Complete demo script (15-20 min)
+- [`examples/DEMO_CHEAT_SHEET.md`](examples/DEMO_CHEAT_SHEET.md) - Quick command reference
+
 ### 🔧 **Manual Configuration**
 
 ### 1. Create a DR Policy
