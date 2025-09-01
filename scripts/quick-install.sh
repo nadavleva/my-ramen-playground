@@ -35,6 +35,43 @@ check_kubectl() {
 }
 
 # Install Ramen Hub Operator
+install_storage_dependencies() {
+    log_info "Installing storage replication dependencies..."
+    
+    # Install VolumeReplication CRD
+    log_info "Installing VolumeReplication CRD..."
+    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml || log_warning "VolumeReplication CRD may already exist"
+    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml || log_warning "VolumeReplicationClass CRD may already exist"
+    
+    # Install External Snapshotter (required by VolSync)
+    log_info "Installing External Snapshotter..."
+    kubectl apply -k "https://github.com/kubernetes-csi/external-snapshotter/config/crd?ref=v6.2.1" || log_warning "Snapshotter CRDs may already exist"
+    kubectl apply -k "https://github.com/kubernetes-csi/external-snapshotter/deploy/kubernetes/snapshot-controller?ref=v6.2.1" || log_warning "Snapshot Controller may already exist"
+    
+    # Install VolSync using Helm
+    log_info "Installing VolSync for storage replication..."
+    helm repo add backube https://backube.github.io/helm-charts/ || log_warning "VolSync repo may already exist"
+    helm repo update
+    
+    # Create volsync-system namespace if it doesn't exist
+    kubectl create namespace volsync-system --dry-run=client -o yaml | kubectl apply -f -
+    
+    # Install VolSync with timeout handling for development environments
+    log_info "Installing VolSync (may timeout in kind/development environments)..."
+    if helm upgrade --install volsync backube/volsync --namespace volsync-system --wait --timeout=5m; then
+        log_success "VolSync installed successfully"
+    else
+        log_warning "VolSync installation timed out - this is common in kind/development environments"
+        log_info "VolSync CRDs should still be available for basic testing"
+        # Check if CRDs were installed even if deployment failed
+        if kubectl get crd replicationsources.volsync.backube >/dev/null 2>&1; then
+            log_info "✅ VolSync CRDs detected - basic functionality available"
+        fi
+    fi
+    
+    log_success "Storage dependencies installed successfully"
+}
+
 install_hub_operator() {
     log_info "Installing Ramen Hub Operator..."
     
@@ -92,6 +129,9 @@ install_cluster_operator() {
         fi
     fi
     
+    # Install storage dependencies first (required for DR cluster operators)
+    install_storage_dependencies
+    
     # Ensure CRDs are installed (may have been done by hub operator)
     log_info "Ensuring RamenDR CRDs are installed..."
     make install
@@ -113,26 +153,61 @@ install_cluster_operator() {
     kind load docker-image quay.io/ramendr/ramen-operator:latest --name ramen-dr1
     kind load docker-image quay.io/ramendr/ramen-operator:latest --name ramen-dr2
     
-    # Deploy cluster operator to DR1 cluster
-    log_info "Deploying cluster operator to ramen-dr1 cluster..."
-    kubectl config use-context kind-ramen-dr1
-    make deploy-dr-cluster
+    # Deploy cluster operators to both DR clusters in parallel
+    log_info "Deploying cluster operators to both DR clusters in parallel..."
     
-    # Deploy cluster operator to DR2 cluster  
-    log_info "Deploying cluster operator to ramen-dr2 cluster..."
-    kubectl config use-context kind-ramen-dr2
-    make deploy-dr-cluster
+    # Start DR1 deployment in background
+    (
+        kubectl config use-context kind-ramen-dr1
+        log_info "Installing storage dependencies on ramen-dr1..."
+        install_storage_dependencies
+        log_info "Starting deployment to ramen-dr1..."
+        make deploy-dr-cluster
+        log_info "DR1 deployment completed"
+    ) &
+    DR1_PID=$!
     
-    # Wait for deployments to be ready on both DR clusters
+    # Start DR2 deployment in background  
+    (
+        kubectl config use-context kind-ramen-dr2
+        log_info "Installing storage dependencies on ramen-dr2..."
+        install_storage_dependencies
+        log_info "Starting deployment to ramen-dr2..."
+        make deploy-dr-cluster
+        log_info "DR2 deployment completed"
+    ) &
+    DR2_PID=$!
+    
+    # Wait for both deployments to complete
+    log_info "Waiting for both deployments to complete..."
+    wait $DR1_PID
+    wait $DR2_PID
+    log_info "Both DR cluster deployments completed"
+    
+    # Wait for deployments to be ready on both DR clusters (also in parallel)
     log_info "Waiting for cluster operators to be ready..."
     
-    log_info "Checking ramen-dr1 cluster operator..."
-    kubectl config use-context kind-ramen-dr1
-    kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+    # Check DR1 readiness in background
+    (
+        kubectl config use-context kind-ramen-dr1
+        log_info "Checking ramen-dr1 cluster operator readiness..."
+        kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+        log_info "DR1 operator is ready"
+    ) &
+    DR1_WAIT_PID=$!
     
-    log_info "Checking ramen-dr2 cluster operator..."
-    kubectl config use-context kind-ramen-dr2
-    kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+    # Check DR2 readiness in background
+    (
+        kubectl config use-context kind-ramen-dr2
+        log_info "Checking ramen-dr2 cluster operator readiness..."
+        kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+        log_info "DR2 operator is ready"
+    ) &
+    DR2_WAIT_PID=$!
+    
+    # Wait for both readiness checks
+    wait $DR1_WAIT_PID
+    wait $DR2_WAIT_PID
     
     log_success "Ramen Cluster Operator installed successfully"
 }

@@ -2,6 +2,21 @@
 
 This directory contains automation scripts that eliminate manual copy-pasting from documentation. These scripts automate the installation steps from various README files.
 
+## ⚠️ Production Deployment Notes
+
+**For Production Use**: These scripts are optimized for **kind development environments**. For better stability and performance, consider:
+
+- **🏆 Recommended**: **k3s + Longhorn** (lightweight, production-ready)
+- **🥈 Alternative**: **minikube** (officially tested)  
+- **🥉 Real clusters**: AWS EKS, GKE, AKS, or on-premises Kubernetes
+
+**Current limitations with kind**:
+- API server timeout issues with DR cluster operators
+- VolSync deployment challenges  
+- Networking quirks due to containerized nodes
+
+See `docs/LIGHTWEIGHT_K8S_GUIDE.md` for k3s setup instructions.
+
 ## 🚀 Quick Start
 
 **One-command setup:**
