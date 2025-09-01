@@ -1,3 +1,4 @@
+---
 # SPDX-FileCopyrightText: The RamenDR authors
 # SPDX-License-Identifier: Apache-2.0
 
@@ -14,19 +15,19 @@ metadata:
 spec:
   # Reference to our DRPolicy
   drPolicy: ramen-dr-policy
-  
+
   # S3 profiles for metadata storage
   s3Profiles:
   - minio-s3
-  
+
   # PVC selector to protect our nginx PVC
   pvcSelector:
     matchLabels:
       app: nginx-test
-  
+
   # Replication state (primary = active, secondary = standby)
   replicationState: primary
-  
+
   # Volume replication classes (if available)
   volumeReplicationClasses:
   - matchLabels:

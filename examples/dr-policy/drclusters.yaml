@@ -1,7 +1,6 @@
-<!--
-SPDX-FileCopyrightText: The RamenDR authors
-SPDX-License-Identifier: Apache-2.0
--->
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
 
 # DRCluster Resources for RamenDR
 # Defines the disaster recovery clusters participating in replication
@@ -26,10 +25,10 @@ metadata:
 spec:
   # S3 configuration for metadata storage
   s3ProfileName: minio-s3
-  
+
   # Region/Zone identification
   region: us-east-1
-  
+
   # Storage classes for replication (optional)
   # storageClasses:
   # - name: standard
@@ -50,10 +49,10 @@ metadata:
 spec:
   # S3 configuration for metadata storage
   s3ProfileName: minio-s3
-  
+
   # Region/Zone identification (different from dr1)
   region: us-east-2
-  
+
   # Storage classes for replication (optional)
   # storageClasses:
   # - name: standard
@@ -78,3 +77,4 @@ spec:
 #     provisioner: ebs.csi.aws.com
 #   - name: efs
 #     provisioner: efs.csi.aws.com
+

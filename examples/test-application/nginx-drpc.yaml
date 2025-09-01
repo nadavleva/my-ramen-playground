@@ -1,3 +1,4 @@
+---
 # SPDX-FileCopyrightText: The RamenDR authors
 # SPDX-License-Identifier: Apache-2.0
 
@@ -16,17 +17,17 @@ spec:
   drPolicyRef:
     name: ramen-dr-policy
     namespace: ramen-system
-  
+
   # Which cluster should be primary (where app runs)
   preferredCluster: ramen-dr1
-  
+
   # Which cluster to failover to
   failoverCluster: ramen-dr2
-  
+
   # PVC selector - which PVCs to protect
   pvcSelector:
     matchLabels:
       app: nginx-test
-  
+
   # Protection mode
   replicationState: primary

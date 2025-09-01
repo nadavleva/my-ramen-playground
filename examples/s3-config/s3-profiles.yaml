@@ -1,7 +1,6 @@
-<!--
-SPDX-FileCopyrightText: The RamenDR authors
-SPDX-License-Identifier: Apache-2.0
--->
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
 
 # S3 Profile Configuration for RamenDR
 # This ConfigMap defines S3 storage profiles that DRCluster resources reference
@@ -30,14 +29,14 @@ data:
     {
       "s3ProfileName": "minio-s3",
       "s3Bucket": "ramen-metadata",
-      "s3Region": "us-east-1", 
+      "s3Region": "us-east-1",
       "s3Endpoint": "http://minio.minio-system.svc.cluster.local:9000",
       "s3SecretRef": {
         "name": "ramen-s3-secret",
         "namespace": "ramen-system"
       }
     }
-  
+
   # AWS S3 Profile (Production)
   aws-s3-production: |
     {
@@ -50,11 +49,11 @@ data:
         "namespace": "ramen-system"
       }
     }
-  
+
   # Multi-region AWS S3 Profile
   aws-s3-west: |
     {
-      "s3ProfileName": "aws-s3-west", 
+      "s3ProfileName": "aws-s3-west",
       "s3Bucket": "ramen-metadata-west-20250901",
       "s3Region": "us-west-2",
       "s3Endpoint": "",
@@ -104,7 +103,7 @@ data:
       "s3Region": "us-east-1",
       "s3Endpoint": "",
       "s3SecretRef": {
-        "name": "ramen-s3-secret", 
+        "name": "ramen-s3-secret",
         "namespace": "ramen-system"
       }
     }

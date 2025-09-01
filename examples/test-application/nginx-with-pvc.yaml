@@ -1,15 +1,9 @@
+---
 # SPDX-FileCopyrightText: The RamenDR authors
 # SPDX-License-Identifier: Apache-2.0
 
 # Test Application with PVC for RamenDR Verification
-# This creates a simple nginx application with persistent storage that can be protected by RamenDR
-#
-# Usage:
-#   kubectl apply -f nginx-with-pvc.yaml
-#   # Wait for RamenDR to create VRG
-#   kubectl get vrg -n nginx-test
-#   # Check S3 for metadata
-#   ./examples/s3-config/check-minio-backups.sh
+# This creates a simple nginx application with persistent storage
 
 apiVersion: v1
 kind: Namespace
@@ -71,7 +65,7 @@ spec:
           echo "<h1>RamenDR Test Application</h1>" > /usr/share/nginx/html/index.html
           echo "<p>Deployment time: $(date)</p>" >> /usr/share/nginx/html/index.html
           echo "<p>Hostname: $(hostname)</p>" >> /usr/share/nginx/html/index.html
-          echo "<p>This data should be replicated by RamenDR + VolSync</p>" >> /usr/share/nginx/html/index.html
+          echo "<p>This data should be replicated by RamenDR</p>" >> /usr/share/nginx/html/index.html
           nginx -g "daemon off;"
       volumes:
       - name: nginx-storage
