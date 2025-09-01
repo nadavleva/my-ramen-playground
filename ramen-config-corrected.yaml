@@ -39,7 +39,7 @@ s3StoreProfiles:
       name: minio-s3-secret
       namespace: ramen-system
 ---
-# DRCluster for hub 
+# DRCluster for hub
 apiVersion: ramendr.openshift.io/v1alpha1
 kind: DRCluster
 metadata:

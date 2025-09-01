@@ -21,7 +21,6 @@ log_error() { echo -e "${RED}❌ $1${NC}"; }
 # Configuration
 S3_TYPE="${1:-minio}"  # minio or aws
 AWS_BUCKET="${2}"
-EXAMPLES_DIR="$(dirname "$0")"
 
 print_usage() {
     echo "Usage: $0 [s3-type] [aws-bucket]"
@@ -41,8 +40,17 @@ main() {
     # Step 1: Quick verification
     log_info "Step 1: Checking RamenDR setup..."
     
-    kubectl get drclusters -n ramen-system 2>/dev/null && log_success "DRClusters found" || log_warning "No DRClusters configured"
-    kubectl get vrg -A 2>/dev/null | head -5 && log_success "VolumeReplicationGroups active" || log_warning "No applications protected yet"
+    if kubectl get drclusters -n ramen-system >/dev/null 2>&1; then
+        log_success "DRClusters found"
+    else
+        log_warning "No DRClusters configured"
+    fi
+    
+    if kubectl get vrg -A >/dev/null 2>&1 && [ "$(kubectl get vrg -A --no-headers 2>/dev/null | wc -l)" -gt 0 ]; then
+        log_success "VolumeReplicationGroups active"
+    else
+        log_warning "No applications protected yet"
+    fi
     
     echo ""
     log_info "📝 For detailed verification, run individual scripts:"

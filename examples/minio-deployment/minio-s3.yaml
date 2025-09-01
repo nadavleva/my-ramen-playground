@@ -42,7 +42,7 @@ spec:
       labels:
         app: minio
     spec:
-        containers:
+      containers:
       - name: minio
         image: quay.io/minio/minio:latest
         command:
