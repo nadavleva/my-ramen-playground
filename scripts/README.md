@@ -15,6 +15,35 @@ This directory contains automation scripts that eliminate manual copy-pasting fr
 - VolSync deployment challenges  
 - Networking quirks due to containerized nodes
 
+**k3s Issues Discovered**:
+- **RBAC bootstrap failures**: Persistent failures in `poststarthook/rbac/bootstrap-roles` and `poststarthook/scheduling/bootstrap-system-priority-classes`
+- **Service restart loops**: k3s keeps restarting due to bootstrap failures
+- **Log spam**: k3s dumps debug logs to terminal during failures (use log redirection workaround)
+
+**k3s Workarounds**:
+```bash
+# Install with log redirection to avoid terminal spam
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --disable=traefik" sh - >/tmp/k3s-install.log 2>&1
+
+# Set up log rotation
+sudo mkdir -p /var/log/k3s
+sudo tee /etc/logrotate.d/k3s > /dev/null << 'EOF'
+/var/log/k3s/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    maxsize 100M
+}
+EOF
+
+# Alternative: Try disabling RBAC components
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --disable-network-policy --disable=traefik --write-kubeconfig-mode=644" sh -
+```
+
 See `docs/LIGHTWEIGHT_K8S_GUIDE.md` for k3s setup instructions.
 
 ## 🚀 Quick Start

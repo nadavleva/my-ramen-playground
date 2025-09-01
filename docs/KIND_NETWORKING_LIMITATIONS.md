@@ -197,6 +197,47 @@ kubectl run test-pod --image=curlimages/curl --rm -it --restart=Never --context 
 2. **CI/CD pipelines**: Use real cluster environments
 3. **Local development**: minikube or k3s for stable testing
 
+## 🔄 k3s Investigation Results
+
+After discovering kind limitations, we investigated **k3s as an alternative**. Unfortunately, k3s also has **system-level issues** on this environment:
+
+### ❌ **k3s Problems Discovered**
+- **RBAC bootstrap failures**: `poststarthook/rbac/bootstrap-roles` consistently fails
+- **Priority classes failures**: `poststarthook/scheduling/bootstrap-system-priority-classes` fails  
+- **Service restart loops**: k3s keeps restarting due to these bootstrap failures
+- **Log spam**: k3s dumps debug logs directly to terminal during startup failures
+- **kubectl connectivity**: Works intermittently due to restart loops
+
+### 🔧 **k3s Workarounds Attempted**
+```bash
+# Log redirection (successful)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --disable=traefik" sh - >/tmp/k3s-install.log 2>&1
+
+# Log rotation setup (successful)
+sudo mkdir -p /var/log/k3s
+sudo tee /etc/logrotate.d/k3s > /dev/null << 'EOF'
+/var/log/k3s/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    maxsize 100M
+}
+EOF
+
+# Disabling components (attempted but still fails)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --disable-network-policy --disable=traefik --write-kubeconfig-mode=644" sh -
+```
+
+### 📊 **Platform Comparison Results**
+| Platform | Hub Operator | DR Operators | VolSync | Stability | Status |
+|----------|--------------|--------------|---------|-----------|---------|
+| **kind** | ✅ Perfect (2/2) | ⚠️ Partial (1/2) | ❌ Network issues | 🟡 Moderate | **Working** |
+| **k3s** | ❌ Not tested | ❌ Not tested | ❌ Bootstrap failures | 🔴 Poor | **Failed** |
+
 ## 📚 References
 
 - [Kubernetes in Docker (kind) Limitations](https://kind.sigs.k8s.io/docs/user/known-issues/)
@@ -207,4 +248,4 @@ kubectl run test-pod --image=curlimages/curl --rm -it --restart=Never --context 
 ---
 
 **Last Updated**: September 2025  
-**Status**: Confirmed limitation - use k3s or real clusters for stable RamenDR testing
+**Status**: Both kind and k3s have limitations - kind is more stable. Use minikube or real clusters for production testing.
