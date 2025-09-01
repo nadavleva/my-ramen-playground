@@ -1,0 +1,33 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# DRPlacementControl for nginx-test application
+# This tells RamenDR to protect the nginx-test namespace and creates VRGs
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPlacementControl
+metadata:
+  name: nginx-test-drpc
+  namespace: nginx-test
+  labels:
+    app: nginx-test
+spec:
+  # Reference to the DRPolicy we created
+  drPolicyRef:
+    name: ramen-dr-policy
+    namespace: ramen-system
+
+  # Which cluster should be primary (where app runs)
+  preferredCluster: ramen-dr1
+
+  # Which cluster to failover to
+  failoverCluster: ramen-dr2
+
+  # PVC selector - which PVCs to protect
+  pvcSelector:
+    matchLabels:
+      app: nginx-test
+
+  # Protection mode
+  replicationState: primary

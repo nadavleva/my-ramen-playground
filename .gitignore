@@ -44,6 +44,9 @@ test/.coverage
 test/.coverage.*
 test/addons/kubevirt/vm/id_rsa.pub
 
+# kubectl-gather generated directories
+gather.*/
+
 # Python generated files
 *.egg-info/
 __pycache__/
@@ -63,3 +66,4 @@ ramendev/build
 
 # Ginkgo-related test files
 ginkgo.report
+Temp/

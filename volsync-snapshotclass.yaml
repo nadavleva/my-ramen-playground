@@ -1,0 +1,22 @@
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: volsync-snapclass
+  labels:
+    ramen.io/volumeSnapshotClass: "volsync-snapclass"
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete
+parameters:
+  # For VolSync with local-path storage
+  storageClassName: standard
+---
+# Alternative snapshot class for testing
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: csi-hostpath-snapclass
+  labels:
+    ramen.io/volumeSnapshotClass: "csi-hostpath-snapclass"
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete

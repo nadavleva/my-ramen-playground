@@ -1,0 +1,109 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# S3 Profile Configuration for RamenDR
+# This ConfigMap defines S3 storage profiles that DRCluster resources reference
+#
+# Usage:
+#   kubectl apply -f s3-profiles.yaml
+#
+# Prerequisites:
+#   - S3 storage (MinIO or AWS) running and accessible
+#   - S3 bucket created manually
+#   - S3 secret with credentials
+
+---
+# MinIO S3 Profile (Development/Testing)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-s3-profiles
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: s3-config
+data:
+  # MinIO S3 Profile
+  minio-s3: |
+    {
+      "s3ProfileName": "minio-s3",
+      "s3Bucket": "ramen-metadata",
+      "s3Region": "us-east-1",
+      "s3Endpoint": "http://minio.minio-system.svc.cluster.local:9000",
+      "s3SecretRef": {
+        "name": "ramen-s3-secret",
+        "namespace": "ramen-system"
+      }
+    }
+
+  # AWS S3 Profile (Production)
+  aws-s3-production: |
+    {
+      "s3ProfileName": "aws-s3-production",
+      "s3Bucket": "ramen-metadata-production-20250901",
+      "s3Region": "us-east-1",
+      "s3Endpoint": "",
+      "s3SecretRef": {
+        "name": "ramen-s3-secret",
+        "namespace": "ramen-system"
+      }
+    }
+
+  # Multi-region AWS S3 Profile
+  aws-s3-west: |
+    {
+      "s3ProfileName": "aws-s3-west",
+      "s3Bucket": "ramen-metadata-west-20250901",
+      "s3Region": "us-west-2",
+      "s3Endpoint": "",
+      "s3SecretRef": {
+        "name": "ramen-s3-secret",
+        "namespace": "ramen-system"
+      }
+    }
+
+---
+# Alternative: Using separate ConfigMaps for each profile
+# This approach is cleaner for managing multiple environments
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-s3-profile
+  namespace: ramen-system
+  labels:
+    ramendr.openshift.io/s3-profile: "minio-s3"
+data:
+  profile.json: |
+    {
+      "s3ProfileName": "minio-s3",
+      "s3Bucket": "ramen-metadata",
+      "s3Region": "us-east-1",
+      "s3Endpoint": "http://minio.minio-system.svc.cluster.local:9000",
+      "s3SecretRef": {
+        "name": "ramen-s3-secret",
+        "namespace": "ramen-system"
+      }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-s3-profile
+  namespace: ramen-system
+  labels:
+    ramendr.openshift.io/s3-profile: "aws-s3-production"
+data:
+  profile.json: |
+    {
+      "s3ProfileName": "aws-s3-production",
+      "s3Bucket": "your-ramen-metadata-bucket-name",
+      "s3Region": "us-east-1",
+      "s3Endpoint": "",
+      "s3SecretRef": {
+        "name": "ramen-s3-secret",
+        "namespace": "ramen-system"
+      }
+    }

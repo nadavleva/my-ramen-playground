@@ -44,7 +44,7 @@ graph TD
 | Mode 3 | minikube/k3s | 12+ GB RAM | Free | Local Development |
 | Mode 4 | kind/containers | 6+ GB RAM | Free | Concept Validation |
 
-### 🔴 [OPENSHIFT_SETUP.md](OPENSHIFT_SETUP.md)  
+### ⛑️ [OPENSHIFT_SETUP.md](OPENSHIFT_SETUP.md)  
 **OpenShift-specific deployment with Red Hat products**
 
 **Covers:**

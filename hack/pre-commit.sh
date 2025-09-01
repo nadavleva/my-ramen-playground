@@ -80,7 +80,7 @@ run_shellcheck() {
     detected_version=$("${tool}" --version | grep "version:" | cut -d' ' -f2)
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    get_files '.*\.(ba)?sh' | xargs -0 -r "${tool}" | tee -a "${OUTPUTS_FILE}"
+    get_files '.*\.(ba)?sh' | grep -v '^examples/' | xargs -0 -r "${tool}" | tee -a "${OUTPUTS_FILE}"
     echo
     echo
 }

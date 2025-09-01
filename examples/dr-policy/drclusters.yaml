@@ -1,0 +1,80 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# DRCluster Resources for RamenDR
+# Defines the disaster recovery clusters participating in replication
+#
+# Usage:
+#   kubectl apply -f drclusters.yaml
+#
+# Prerequisites:
+#   - RamenDR operators installed on hub and DR clusters
+#   - S3 storage (MinIO) running and accessible
+#   - S3 secret created (s3-secret.yaml)
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr1
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: dr-cluster
+    cluster.ramendr.openshift.io/name: dr1
+spec:
+  # S3 configuration for metadata storage
+  s3ProfileName: minio-s3
+
+  # Region/Zone identification
+  region: us-east-1
+
+  # Storage classes for replication (optional)
+  # storageClasses:
+  # - name: standard
+  #   provisioner: kubernetes.io/host-path
+  # - name: ceph-rbd
+  #   provisioner: rbd.csi.ceph.com
+
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr2
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: dr-cluster
+    cluster.ramendr.openshift.io/name: dr2
+spec:
+  # S3 configuration for metadata storage
+  s3ProfileName: minio-s3
+
+  # Region/Zone identification (different from dr1)
+  region: us-east-2
+
+  # Storage classes for replication (optional)
+  # storageClasses:
+  # - name: standard
+  #   provisioner: kubernetes.io/host-path
+  # - name: ceph-rbd
+  #   provisioner: rbd.csi.ceph.com
+
+---
+# Example: DRCluster for AWS EKS
+# Uncomment and modify for real AWS environments
+#
+# apiVersion: ramendr.openshift.io/v1alpha1
+# kind: DRCluster
+# metadata:
+#   name: aws-east-cluster
+#   namespace: ramen-system
+# spec:
+#   s3ProfileName: aws-s3-east
+#   region: us-east-1
+#   storageClasses:
+#   - name: gp3
+#     provisioner: ebs.csi.aws.com
+#   - name: efs
+#     provisioner: efs.csi.aws.com
+

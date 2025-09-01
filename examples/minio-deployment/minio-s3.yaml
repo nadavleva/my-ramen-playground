@@ -1,0 +1,127 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# MinIO S3 Storage for RamenDR Metadata
+# S3-compatible storage for RamenDR metadata
+#
+# Usage:
+#   kubectl apply -f minio-s3.yaml
+#   kubectl port-forward -n minio-system service/minio 9000:9000 (for access)
+#
+# Access:
+#   Console: http://localhost:9001 (admin UI)
+#   API: http://localhost:9000 (S3 API)
+#   Credentials: minioadmin / minioadmin
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio-system
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: minio-system
+  labels:
+    app: minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: quay.io/minio/minio:latest
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - minio server /data --console-address :9001
+        env:
+        - name: MINIO_ROOT_USER
+          value: "minioadmin"
+        - name: MINIO_ROOT_PASSWORD
+          value: "minioadmin"
+        ports:
+        - containerPort: 9000
+          name: api
+          protocol: TCP
+        - containerPort: 9001
+          name: console
+          protocol: TCP
+        volumeMounts:
+        - name: storage
+          mountPath: "/data"
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: storage
+        emptyDir: {}
+        # For persistent storage, use:
+        # persistentVolumeClaim:
+        #   claimName: minio-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: minio-system
+  labels:
+    app: minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: api
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  selector:
+    app: minio
+
+---
+# Optional: PersistentVolumeClaim for production use
+# Uncomment this for persistent storage across pod restarts
+#
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: minio-pvc
+#   namespace: minio-system
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+#   storageClassName: standard
