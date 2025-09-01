@@ -48,7 +48,28 @@ install_hub_operator() {
         fi
     fi
     
-    kubectl apply -k github.com/RamenDR/ramen/config/olm-install/hub/?ref=main
+    # Install CRDs first
+    log_info "Installing RamenDR CRDs..."
+    make install
+    
+    # Build and load operator image
+    log_info "Building RamenDR operator image..."
+    make docker-build
+    
+    # Transfer image from podman to docker if needed
+    if podman images | grep -q "ramen-operator"; then
+        log_info "Transferring image from podman to docker..."
+        podman save quay.io/ramendr/ramen-operator:latest | docker load
+    fi
+    
+    # Load image into kind cluster
+    log_info "Loading operator image into kind cluster..."
+    kind load docker-image quay.io/ramendr/ramen-operator:latest --name ramen-hub
+    
+    # Switch to hub cluster context and deploy hub operator
+    log_info "Deploying hub operator to ramen-hub cluster..."
+    kubectl config use-context kind-ramen-hub
+    make deploy-hub
     
     # Wait for deployment to be ready
     log_info "Waiting for hub operator to be ready..."
@@ -71,10 +92,46 @@ install_cluster_operator() {
         fi
     fi
     
-    kubectl apply -k github.com/RamenDR/ramen/config/olm-install/dr-cluster/?ref=main
+    # Ensure CRDs are installed (may have been done by hub operator)
+    log_info "Ensuring RamenDR CRDs are installed..."
+    make install
     
-    # Wait for deployment to be ready
-    log_info "Waiting for cluster operator to be ready..."
+    # Build and load operator image if not already done
+    if ! docker images | grep -q "quay.io/ramendr/ramen-operator"; then
+        log_info "Building RamenDR operator image..."
+        make docker-build
+        
+        # Transfer image from podman to docker if needed
+        if podman images | grep -q "ramen-operator"; then
+            log_info "Transferring image from podman to docker..."
+            podman save quay.io/ramendr/ramen-operator:latest | docker load
+        fi
+    fi
+    
+    # Load image into DR clusters
+    log_info "Loading operator image into DR clusters..."
+    kind load docker-image quay.io/ramendr/ramen-operator:latest --name ramen-dr1
+    kind load docker-image quay.io/ramendr/ramen-operator:latest --name ramen-dr2
+    
+    # Deploy cluster operator to DR1 cluster
+    log_info "Deploying cluster operator to ramen-dr1 cluster..."
+    kubectl config use-context kind-ramen-dr1
+    make deploy-dr-cluster
+    
+    # Deploy cluster operator to DR2 cluster  
+    log_info "Deploying cluster operator to ramen-dr2 cluster..."
+    kubectl config use-context kind-ramen-dr2
+    make deploy-dr-cluster
+    
+    # Wait for deployments to be ready on both DR clusters
+    log_info "Waiting for cluster operators to be ready..."
+    
+    log_info "Checking ramen-dr1 cluster operator..."
+    kubectl config use-context kind-ramen-dr1
+    kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+    
+    log_info "Checking ramen-dr2 cluster operator..."
+    kubectl config use-context kind-ramen-dr2
     kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
     
     log_success "Ramen Cluster Operator installed successfully"

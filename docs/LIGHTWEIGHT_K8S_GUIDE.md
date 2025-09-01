@@ -547,48 +547,7 @@ if [ -n "$existing_clusters" ]; then
     done
 else
     echo "✅ No existing kind clusters found"
-fi
-
-# Clean up any leftover storage directories
-sudo rm -rf /tmp/ramen-{hub,dr1,dr2} 2>/dev/null || true
-
-echo "✅ Starting fresh kind cluster setup..."
-
-# Create kind clusters with minimal resources
-cat > hub-kind.yaml <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: ramen-hub
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: ClusterConfiguration
-    etcd:
-      local:
-        dataDir: /tmp/etcd
-    apiServer:
-      extraArgs:
-        enable-admission-plugins: NodeRestriction
-  extraMounts:
-  - hostPath: /tmp/ramen-hub
-    containerPath: /tmp/local-storage
-EOF
-
-cat > dr-kind.yaml <<EOF  
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: ramen-dr1
-nodes:
-- role: control-plane
-  extraMounts:
-  - hostPath: /tmp/ramen-dr1
-    containerPath: /tmp/local-storage
-EOF
-
-# Create clusters
-kind create cluster --config hub-kind.yaml
-kind create cluster --config dr-kind.yaml --name ramen-dr2
+fig
 
 # Setup local storage simulation
 for cluster in ramen-hub ramen-dr1 ramen-dr2; do

@@ -153,22 +153,33 @@ install_velero() {
 # Install helm
 install_helm() {
     if command_exists helm; then
-        log_success "helm already installed: $(helm version --short)"
+        log_success "helm already installed: $(helm version --short 2>/dev/null || helm version)"
         return
     fi
     
-    log_info "Installing helm..."
+    log_info "📦 Installing Helm package manager..."
+    echo "    Helm is required for installing VolSync and other RamenDR components"
+    
     case $DISTRO in
         ubuntu|debian)
-            curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+            log_info "    Setting up Helm repository for Debian/Ubuntu..."
+            curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
             sudo apt update && sudo apt install -y helm
             ;;
         fedora|rhel|centos|rocky|almalinux)
-            install_package "helm"
+            log_info "    Installing Helm via package manager..."
+            # Try dnf first, fallback to manual installation if not available
+            if ! install_package "helm" 2>/dev/null; then
+                log_info "    Helm not in repos, installing manually..."
+                curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+                chmod 700 get_helm.sh
+                ./get_helm.sh
+                rm get_helm.sh
+            fi
             ;;
     esac
-    log_success "helm installed: $(helm version --short)"
+    log_success "✅ Helm installed: $(helm version --short 2>/dev/null || helm version)"
 }
 
 # Install kustomize
@@ -253,26 +264,53 @@ install_python_tools() {
 
 # Install Docker
 install_docker() {
+    log_info "🐳 Setting up Docker container runtime..."
+    echo "    Docker is required for kind clusters and container image building"
+    
     if command_exists docker; then
-        log_success "Docker already installed: $(docker --version)"
-        return
+        log_success "Docker already installed: $(docker --version 2>/dev/null || echo 'Docker installed but not running')"
+        
+        # Check if Docker daemon is running
+        if docker info >/dev/null 2>&1; then
+            log_success "    Docker daemon is running"
+            return
+        else
+            log_info "    Docker installed but daemon not running, starting..."
+        fi
+    else
+        log_info "    Installing Docker CE..."
+        
+        # Remove conflicting packages first
+        case $DISTRO in
+            ubuntu|debian)
+                sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+                ;;
+            fedora|rhel|centos|rocky|almalinux)
+                sudo dnf remove -y podman-docker 2>/dev/null || true
+                ;;
+        esac
+        
+        # Install Docker CE using official script for reliability
+        log_info "    Downloading and running Docker installation script..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        rm get-docker.sh
     fi
     
-    log_info "Installing Docker..."
-    case $DISTRO in
-        ubuntu|debian)
-            install_package "docker.io"
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            install_package "docker"
-            ;;
-    esac
-    
+    log_info "    Configuring Docker service..."
     sudo systemctl start docker
     sudo systemctl enable docker
+    
+    log_info "    Adding user to docker group for non-root access..."
     sudo usermod -aG docker "$(whoami)"
-    log_success "Docker installed and configured"
-    log_warning "Please logout and login again for Docker group membership to take effect"
+    
+    # Test Docker installation
+    if docker info >/dev/null 2>&1; then
+        log_success "✅ Docker installed and running: $(docker --version)"
+    else
+        log_warning "⚠️  Docker installed but requires restart"
+        log_warning "    Please logout and login again, then run: sudo systemctl start docker"
+    fi
 }
 
 # Verify all installations
@@ -303,27 +341,52 @@ verify_installation() {
 
 # Main installation function
 main() {
-    log_info "🚀 Starting automated RamenDR Linux development environment setup..."
+    echo "=========================================="
+    log_info "🚀 RamenDR Linux Development Environment Setup"
+    echo "=========================================="
+    echo ""
+    log_info "This script will install all prerequisites for RamenDR development including:"
+    echo "   • Container runtime (Docker)"
+    echo "   • Kubernetes tools (kubectl, helm, kustomize)"
+    echo "   • Local Kubernetes (minikube, kind)"
+    echo "   • RamenDR specific tools (clusteradm, subctl, velero)"
+    echo "   • Development tools (Go, Python)"
+    echo ""
     
     # Check for jq (required for some installations)
     if ! command_exists jq; then
-        log_info "Installing jq (required for some tools)..."
+        log_info "📋 Installing jq (required for JSON processing)..."
         install_package "jq"
     fi
     
     detect_distro
+    echo ""
+    
+    log_info "🔧 Installing core infrastructure..."
+    echo "----------------------------------------"
     
     # Core virtualization and container tools
+    log_info "Step 1/3: Setting up virtualization and containers"
     install_libvirt
     install_docker
     
+    echo ""
+    log_info "☸️  Installing Kubernetes ecosystem..."
+    echo "----------------------------------------"
+    
     # Kubernetes tools
+    log_info "Step 2/3: Installing Kubernetes tools"
     install_minikube
     install_kubectl
     install_helm
     install_kustomize
     
+    echo ""
+    log_info "🛠️  Installing RamenDR specific tools..."
+    echo "----------------------------------------"
+    
     # RamenDR specific tools
+    log_info "Step 3/3: Installing RamenDR components"
     install_clusteradm
     install_subctl
     install_velero
@@ -334,17 +397,24 @@ main() {
     install_go
     install_python_tools
     
+    echo ""
+    log_info "🔍 Verifying installation..."
+    echo "----------------------------------------"
     verify_installation
     
     echo ""
-    log_success "🎉 Installation complete!"
+    echo "=========================================="
+    log_success "🎉 RamenDR Development Environment Ready!"
+    echo "=========================================="
     echo ""
-    log_info "📝 Next steps:"
-    echo "   1. Logout and login again (for group memberships)"
-    echo "   2. Run: source ~/.bashrc (if Go was installed)"
-    echo "   3. Test Docker: docker run hello-world"
-    echo "   4. Test minikube: minikube start"
-    echo "   5. Follow the RamenDR quick start guide"
+    log_info "📝 Important next steps:"
+    echo "   1. 🔄 Logout and login again (for group memberships)"
+    echo "   2. 🔧 Run: source ~/.bashrc (if Go was installed)"
+    echo "   3. 🐳 Test Docker: docker run hello-world"
+    echo "   4. ☸️  Test minikube: minikube start"
+    echo "   5. 🚀 Create kind clusters: ./scripts/setup-kind-enhanced.sh"
+    echo "   6. 📚 Follow RamenDR setup: ./scripts/setup-ramendr.sh"
+    echo ""
 }
 
 # Run main function
