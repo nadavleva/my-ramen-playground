@@ -116,13 +116,65 @@ main() {
     log_info "Current cluster: $(kubectl config current-context)"
     echo ""
     
-    # Step 1: Ensure MinIO is running
-    log_step "Step 1: Verifying MinIO S3 storage is ready..."
-    if ! kubectl get pod -n minio-system -l app=minio | grep -q Running; then
-        log_error "MinIO is not running. Please run: ./deploy-ramendr-s3.sh first"
+    # Prerequisites check
+    log_step "Prerequisites: Checking RamenDR operators..."
+    
+    # Check if RamenDR CRDs are installed
+    if ! kubectl get crd volumereplicationgroups.ramendr.openshift.io >/dev/null 2>&1; then
+        log_error "RamenDR CRDs not found!"
+        echo ""
+        log_info "RamenDR operators must be installed first. Run:"
+        echo "   1. ./scripts/setup.sh kind           # Setup kind clusters"
+        echo "   2. ./scripts/quick-install.sh        # Install RamenDR operators" 
+        echo "   3. ./examples/ramendr-demo.sh        # Run this demo"
+        echo ""
+        echo "Or use the automated workflow:"
+        echo "   ./scripts/fresh-demo.sh              # Complete setup + demo"
+        echo ""
         exit 1
     fi
-    log_success "MinIO is running"
+    
+    # Check if ramen-system namespace exists
+    if ! kubectl get namespace ramen-system >/dev/null 2>&1; then
+        log_error "ramen-system namespace not found!"
+        echo ""
+        log_info "RamenDR operators not installed. See instructions above."
+        exit 1
+    fi
+    
+    log_success "RamenDR operators are installed"
+    
+    # Step 1: Ensure MinIO S3 storage is running
+    log_step "Step 1: Setting up MinIO S3 storage..."
+    
+    # Check if MinIO is already running
+    if kubectl get pod -n minio-system -l app=minio 2>/dev/null | grep -q Running; then
+        log_success "MinIO is already running"
+    else
+        log_info "MinIO not found - deploying S3 storage..."
+        
+        # Switch to hub cluster context for MinIO
+        kubectl config use-context kind-ramen-hub >/dev/null 2>&1 || true
+        
+        # Deploy MinIO S3 storage
+        log_info "Creating MinIO deployment..."
+        kubectl apply -f minio-deployment/minio-s3.yaml
+        
+        # Deploy S3 configuration
+        log_info "Configuring S3 credentials and RamenConfig..."
+        kubectl apply -f s3-config/s3-secret.yaml
+        kubectl apply -f s3-config/ramenconfig.yaml
+        
+        # Wait for MinIO to be ready
+        log_info "Waiting for MinIO to be ready..."
+        wait_for_resource deployment minio minio-system 120
+        
+        # Create S3 bucket
+        log_info "Creating ramen-metadata bucket..."
+        ./s3-config/create-minio-bucket.sh >/dev/null 2>&1 || log_warning "Bucket creation may have failed - will retry later"
+        
+        log_success "MinIO S3 storage deployed and configured"
+    fi
     
     # Step 2: Deploy test application with correct labels
     log_step "Step 2: Deploying nginx test application with PVC..."
