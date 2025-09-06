@@ -20,8 +20,112 @@ kubectl version --client
 
 ### **Demo Environment**
 - **Audience**: Developers, DevOps engineers, Platform teams
-- **Duration**: 15-20 minutes
+- **Duration**: 18-23 minutes
 - **Goal**: Show end-to-end RamenDR disaster recovery automation
+
+---
+
+## 🎯 **Manual Step-by-Step Execution Guide**
+
+For those who prefer to run commands manually or want to understand each step in detail:
+
+### **Step 0: Environment Check**
+```bash
+# Check current state
+docker --version
+kind get clusters
+kubectl config get-contexts
+```
+
+### **Step 1: Environment Cleanup**
+```bash
+# Clean any existing environment
+./scripts/cleanup-all.sh
+```
+**Expected**: Cleanup confirmation prompt → type `y`
+
+### **Step 2: Setup Kind Clusters**
+```bash
+# Create 3 kind clusters (hub, dr1, dr2)
+./scripts/setup.sh kind
+```
+**Expected**: 3 kind clusters created (hub, dr1, dr2)
+
+### **Step 3: Install RamenDR Operators + All CRDs + Resource Classes**
+```bash
+# Install operators on all clusters with all dependencies
+./scripts/quick-install.sh
+# When prompted, choose option 3: "All clusters (automated multi-cluster setup)"
+```
+**Expected**: 
+- ✅ **RamenDR operators** (hub + both DR clusters automatically)
+- ✅ **VolumeSnapshot CRDs** (VolumeSnapshot, VolumeSnapshotClass, VolumeSnapshotContent)
+- ✅ **VolumeReplication CRDs** (VolumeReplication, VolumeReplicationClass)
+- ✅ **Resource classes** (demo-snapclass, demo-replication-class)
+- ✅ **VolSync** (storage replication)
+- ✅ **External Snapshotter** (snapshot controller)
+- ✅ **Stub CRDs** (NetworkFenceClass, VolumeGroupReplication)
+
+### **Step 4: Deploy S3 Storage and DR Policies**
+```bash
+# Deploy MinIO and configure DR policies
+./examples/deploy-ramendr-s3.sh
+```
+**Expected**: MinIO S3 deployed + DRPolicy + DRClusters created
+
+### **Step 5: Setup Cross-Cluster S3 Networking**
+```bash
+# Configure cross-cluster S3 access (critical fix!)
+./scripts/setup-cross-cluster-s3.sh
+```
+**Expected**: Cross-cluster S3 networking configured + endpoints updated
+
+### **Step 6: Run Interactive Demo**
+```bash
+# Run the main demo with VRG creation
+./examples/ramendr-demo.sh
+```
+**Expected**: nginx test app + VRGs created + S3 metadata backup verified
+
+### **Optional: Monitoring & Verification**
+```bash
+# Check overall status
+./examples/monitoring/check-ramendr-status.sh
+
+# Check S3 bucket contents
+./examples/s3-config/check-minio-backups.sh
+
+# Interactive monitoring (run in separate terminal)
+./examples/monitoring/demo-monitoring.sh
+```
+
+### **Alternative: One-Command Demo**
+```bash
+# If you want everything automated in one go:
+./scripts/fresh-demo.sh
+```
+
+### **🎯 Success Indicators:**
+- ✅ All 3 kind clusters running
+- ✅ RamenDR operators: Hub (2/2), DR1 (2/2), DR2 (2/2) ready  
+- ✅ S3 bucket `ramen-metadata` contains backup files
+- ✅ VRGs showing `CURRENTSTATE: primary/secondary`
+- ✅ Monitoring script reports "Volume replication is configured!"
+
+### **🛠️ Troubleshooting Commands:**
+```bash
+# Fix kubectl contexts if needed
+./scripts/fix-kubeconfig.sh
+
+# Check operator logs
+kubectl logs -n ramen-system deployment/ramen-hub-operator --context=kind-ramen-hub
+kubectl logs -n ramen-system deployment/ramen-dr-cluster-operator --context=kind-ramen-dr1
+
+# Verify S3 connectivity
+kubectl port-forward -n minio-system service/minio 9000:9000 &
+mc ls minio/ramen-metadata/ --recursive
+pkill -f "port-forward.*minio"
+```
 
 ---
 
@@ -58,14 +162,35 @@ cat examples/RAMENDR_ARCHITECTURE_GUIDE.md | head -30
 
 **🎙️ While Running - Explain What's Happening:**
 - **Cluster Creation**: 3 kind clusters (hub + 2 DR sites)
-- **Operator Installation**: RamenDR hub and DR cluster operators
-- **Storage Setup**: MinIO S3-compatible storage
-- **Validation**: Each step includes verification
+- **Comprehensive Operator Installation**: RamenDR operators on ALL clusters + all CRDs
+  - Hub operator on kind-ramen-hub cluster
+  - DR cluster operators on BOTH kind-ramen-dr1 AND kind-ramen-dr2 clusters  
+  - VolumeSnapshot CRDs (3 types) + External Snapshotter
+  - VolumeReplication CRDs (2 types) + resource classes
+  - VolSync storage replication engine
+  - Stub CRDs for optional features (NetworkFenceClass, etc.)
+- **Storage Setup**: MinIO S3-compatible storage with cross-cluster networking
+- **Resource Classes**: VolumeSnapshotClass + VolumeReplicationClass for VRG selectors
+- **Validation**: Each step includes comprehensive verification
 
-#### **Step 2: Monitor Progress**
+#### **Step 2: Monitor Progress******
+
+**🖥️ Terminal 2: Cluster & Resource Monitoring**
 ```bash
-# In another terminal - show real-time cluster status
-watch -n 2 'echo "=== CLUSTERS ===" && kind get clusters && echo "=== CONTEXTS ===" && kubectl config get-contexts'
+# Real-time cluster and resource status
+watch -n 2 'echo "=== CLUSTERS ===" && kind get clusters && echo "" && echo "=== CONTEXTS ===" && kubectl config get-contexts | grep kind && echo "" && echo "=== RAMEN PODS ===" && kubectl get pods -A | grep ramen | head -5'
+```
+
+**🖥️ Terminal 3: Application & Storage Monitoring**
+```bash
+# Monitor RamenDR resources and applications
+watch -n 3 'echo "=== DR RESOURCES (Hub) ===" && kubectl --context=kind-ramen-hub get drclusters,drpolicies -n ramen-system 2>/dev/null || echo "Not ready yet" && echo "" && echo "=== VRG & APPLICATIONS (DR1) ===" && kubectl --context=kind-ramen-dr1 get vrg,pods,pvc -A 2>/dev/null | head -8 || echo "Not ready yet"'
+```
+
+**🖥️ Terminal 4: KubeVirt Resources (Optional)**
+```bash
+# Monitor KubeVirt and virtualization resources (if using VMs)
+watch -n 5 'echo "=== KUBEVIRT RESOURCES (DR1) ===" && kubectl --context=kind-ramen-dr1 get vm,vmi,pods,pvc,vrg,vr -n kubevirt-sample 2>/dev/null | head -10 || echo "No KubeVirt resources" && echo "" && echo "=== STORAGE CLASSES ===" && kubectl --context=kind-ramen-dr1 get storageclass 2>/dev/null'
 ```
 
 **🎯 Key Messages:**
@@ -75,10 +200,10 @@ watch -n 2 'echo "=== CLUSTERS ===" && kind get clusters && echo "=== CONTEXTS =
 
 ---
 
-### **Phase 3: Environment Validation** (2 minutes)
+### **Phase 3: RamenDR Installation & Validation** (5-6 minutes)
 
 **🗣️ Talking Points:**
-> "Let's verify our complete RamenDR environment is ready. We'll check clusters, operators, and S3 storage."
+> "Now we'll install RamenDR operators on our clusters and validate the complete environment. This shows the multi-cluster coordination that makes disaster recovery possible."
 
 #### **Step 1: Cluster Status**
 ```bash
@@ -86,43 +211,77 @@ watch -n 2 'echo "=== CLUSTERS ===" && kind get clusters && echo "=== CONTEXTS =
 kind get clusters
 echo ""
 
-# Show cluster details
-for cluster in ramen-hub ramen-dr1 ramen-dr2; do
-    echo "=== $cluster ==="
-    docker exec -it ${cluster}-control-plane kubectl get nodes
-done
-```
-
-#### **Step 2: RamenDR Operators**
-```bash
-# Check operators across all clusters
+# Verify cluster connectivity
 for context in kind-ramen-hub kind-ramen-dr1 kind-ramen-dr2; do
     echo "=== $context ==="
-    kubectl config use-context $context
-    kubectl get pods -n ramen-system
+    kubectl config use-context $context 2>/dev/null || { echo "❌ Context $context not found"; continue; }
+    kubectl get nodes --no-headers 2>/dev/null && echo "✅ $context: Connected" || echo "❌ $context: Connection failed"
     echo ""
 done
 ```
 
-#### **Step 3: Storage & CRDs**
+#### **Step 2: Install RamenDR Operators**
 ```bash
-# Switch to hub cluster
+# Install RamenDR operators and dependencies
+echo "🚀 Installing RamenDR operators..."
+./scripts/quick-install.sh
+
+# Note: This installs:
+# - RamenDR CRDs
+# - Hub operator (ramen-hub cluster)  
+# - DR cluster operators (ramen-dr1, ramen-dr2)
+# - VolSync dependencies
+# - S3 storage configuration
+```
+
+#### **Step 3: Verify Operator Installation**
+```bash
+# Check operators across all clusters
+echo "📊 Checking RamenDR operators..."
+for context in kind-ramen-hub kind-ramen-dr1 kind-ramen-dr2; do
+    echo "=== $context ==="
+    kubectl config use-context $context 2>/dev/null || { echo "❌ Context failed"; continue; }
+    
+    # Check if ramen-system namespace exists
+    if kubectl get namespace ramen-system >/dev/null 2>&1; then
+        kubectl get pods -n ramen-system 2>/dev/null || echo "No pods in ramen-system yet"
+    else
+        echo "⏳ ramen-system namespace not created yet"
+    fi
+    echo ""
+done
+```
+
+#### **Step 4: Storage & CRDs Validation**
+```bash
+# Switch to hub cluster for validation
 kubectl config use-context kind-ramen-hub
 
-# Show MinIO S3 storage
-kubectl get pods -n minio-system
+# Show RamenDR CRDs are installed
+echo "📋 RamenDR Custom Resource Definitions:"
+kubectl get crd | grep ramen || echo "⏳ RamenDR CRDs still being created"
 
-# Show RamenDR CRDs
-kubectl get crd | grep ramen
+# Show MinIO S3 storage (if deployed)
+echo ""
+echo "💾 S3 Storage Status:"
+kubectl get pods -n minio-system 2>/dev/null || echo "⏳ MinIO not deployed yet"
 
-# Show S3 configuration
-kubectl get configmap -n ramen-system | grep ramen
+# Show VolSync installation
+echo ""
+echo "🔄 VolSync Status:"
+kubectl get pods -n volsync-system 2>/dev/null || echo "⏳ VolSync not deployed yet"
 ```
 
 **🎯 Key Messages:**
-- **Multi-Cluster**: 3 clusters with different roles
-- **Operators**: Hub orchestrates, DR clusters execute
-- **Storage**: S3 for metadata backup and recovery
+- **Multi-Cluster Architecture**: Hub orchestrates, DR clusters execute
+- **Gradual Deployment**: Operators install progressively across clusters
+- **Dependencies**: VolSync, S3 storage, and CRDs work together
+- **Real-time Validation**: See components come online during demo
+
+**🛠️ Troubleshooting:**
+- If `kubectl config use-context` fails: Run `kind export kubeconfig --name <cluster>` to refresh contexts
+- If you see `localhost:8080` errors: Check current context with `kubectl config current-context`
+- If operators don't appear: Wait 2-3 minutes for installation to complete
 
 ---
 
@@ -268,17 +427,35 @@ ls -la examples/monitoring/
 kubectl logs -n ramen-system -l app.kubernetes.io/name=ramen --tail=10
 ```
 
-#### **Step 2: Operational Commands**
+#### **Step 2: Real-time Resource Monitoring**
+```bash
+# Comprehensive DR resource monitoring across all clusters
+watch -n 3 'echo "=== HUB CLUSTER (kind-ramen-hub) ===" && kubectl --context=kind-ramen-hub get drclusters,drpolicies,pods -n ramen-system 2>/dev/null && echo "" && echo "=== DR1 CLUSTER (kind-ramen-dr1) ===" && kubectl --context=kind-ramen-dr1 get vrg,pods,pvc -A 2>/dev/null | head -6 && echo "" && echo "=== DR2 CLUSTER (kind-ramen-dr2) ===" && kubectl --context=kind-ramen-dr2 get vrg,pods,pvc -A 2>/dev/null | head -6'
+```
+
+#### **Step 3: KubeVirt & Storage Monitoring (Optional)**
+```bash
+# Monitor virtualization workloads and storage replication
+watch -n 5 'echo "=== KUBEVIRT RESOURCES (DR1) ===" && kubectl --context=kind-ramen-dr1 get vm,vmi,pods,pvc,vrg,vr -n kubevirt-sample 2>/dev/null | head -10 || echo "No KubeVirt resources deployed" && echo "" && echo "=== STORAGE CLASSES ===" && kubectl --context=kind-ramen-dr1 get storageclass && echo "" && echo "=== VOLUME SNAPSHOTS ===" && kubectl --context=kind-ramen-dr1 get volumesnapshots -A 2>/dev/null | head -5 || echo "No snapshots"'
+```
+
+#### **Step 4: Operational Commands**
 ```bash
 # Show VRG events and status
 kubectl get events -n nginx-test --sort-by='.lastTimestamp'
 
 # Show backup verification
 ./examples/verify-ramendr-backups.sh 2>/dev/null || echo "Backup verification available"
+
+# Monitor S3 backup activity
+./examples/monitoring/check-minio-backups.sh
 ```
 
 **🎯 Key Messages:**
-- **Observability**: Rich logging and event tracking
+- **Multi-Cluster Observability**: Real-time monitoring across hub and DR clusters
+- **Resource Tracking**: Comprehensive view of VMs, pods, PVCs, VRGs, and storage
+- **KubeVirt Integration**: Specialized monitoring for virtualized workloads
+- **Storage Monitoring**: Volume snapshots and replication status
 - **Automation**: Scripts for common operational tasks
 - **Production Ready**: Comprehensive monitoring included
 
@@ -351,10 +528,37 @@ kubectl get events -n nginx-test --sort-by='.lastTimestamp'
 2. **"What about network policies?"** → Mention OCM integration for secure cluster communication
 3. **"Can this work with OpenShift?"** → Yes, RamenDR originated as OpenShift DR solution
 
+### **Multi-Terminal Monitoring Setup:**
+
+**📊 Recommended Terminal Layout:**
+```bash
+# Terminal 1: Main demo commands (interactive)
+./examples/demo-assistant.sh
+
+# Terminal 2: Cluster & Infrastructure Monitoring
+watch -n 2 'echo "=== CLUSTERS ===" && kind get clusters && echo "" && echo "=== CONTEXTS ===" && kubectl config get-contexts | grep kind && echo "" && echo "=== RAMEN PODS ===" && kubectl get pods -A | grep ramen | head -5'
+
+# Terminal 3: Application & DR Resources
+watch -n 3 'echo "=== DR RESOURCES (Hub) ===" && kubectl --context=kind-ramen-hub get drclusters,drpolicies -n ramen-system 2>/dev/null || echo "Not ready" && echo "" && echo "=== VRG & APPS (DR1) ===" && kubectl --context=kind-ramen-dr1 get vrg,pods,pvc -A 2>/dev/null | head -8'
+
+# Terminal 4: KubeVirt & Storage (if using VMs)
+watch -n 5 'kubectl --context=kind-ramen-dr1 get vm,vmi,pods,pvc,vrg,vr -n kubevirt-sample 2>/dev/null | head -10 || echo "No KubeVirt resources"'
+
+# Terminal 5: MinIO Console Access
+./examples/access-minio-console.sh
+```
+
+**🎯 Monitoring Tips:**
+- Start all watch commands before beginning the demo
+- Use different refresh intervals: infrastructure (2s), apps (3s), storage (5s)
+- Position terminals so audience can see real-time changes
+- Have MinIO console ready at http://localhost:9001
+
 ### **Technical Variations:**
 - **Short Demo (10 min)**: Skip detailed monitoring, focus on automation
 - **Technical Deep-Dive (30 min)**: Include architecture explanation and code walkthrough
 - **Workshop Format (60 min)**: Let audience run commands themselves
+- **KubeVirt Demo (45 min)**: Include VM protection and migration scenarios
 
 ---
 

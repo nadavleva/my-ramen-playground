@@ -28,8 +28,8 @@ spec:
   resources:
     requests:
       storage: 1Gi
-    # Use default storage class
-    # storageClassName: standard
+  # Use default storage class
+  # storageClassName: standard
 
 ---
 apiVersion: apps/v1
@@ -50,23 +50,23 @@ spec:
         app: nginx-test
     spec:
       containers:
-        - name: nginx
-          image: nginx:latest
-          ports:
-            - containerPort: 80
-          volumeMounts:
-            - name: nginx-storage
-              mountPath: /usr/share/nginx/html
-          # Create test data
-          command: ["/bin/sh"]
-          args:
-            - -c
-            - |
-              echo "<h1>RamenDR Test Application</h1>" > /usr/share/nginx/html/index.html
-              echo "<p>Deployment time: $(date)</p>" >> /usr/share/nginx/html/index.html
-              echo "<p>Hostname: $(hostname)</p>" >> /usr/share/nginx/html/index.html
-              echo "<p>Data protected by RamenDR</p>" >> /usr/share/nginx/html/index.html
-              nginx -g "daemon off;"
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-storage
+          mountPath: /usr/share/nginx/html
+        # Create test data
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          echo "<h1>RamenDR Test Application</h1>" > /usr/share/nginx/html/index.html
+          echo "<p>Deployment time: $(date)</p>" >> /usr/share/nginx/html/index.html
+          echo "<p>Hostname: $(hostname)</p>" >> /usr/share/nginx/html/index.html
+          echo "<p>This data should be replicated by RamenDR</p>" >> /usr/share/nginx/html/index.html
+          nginx -g "daemon off;"
       volumes:
       - name: nginx-storage
         persistentVolumeClaim:

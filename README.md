@@ -160,10 +160,13 @@ For a complete hands-on experience with RamenDR:
 # One-command demo: creates kind clusters + installs operators + runs demo
 ./scripts/fresh-demo.sh
 
-# Or step-by-step approach:
-./scripts/setup.sh kind         # Setup 3 kind clusters
-./scripts/quick-install.sh      # Install RamenDR operators  
-./examples/ramendr-demo.sh      # Run interactive demo
+# Or step-by-step approach (6-step automated flow):
+./scripts/cleanup-all.sh              # 1. Clean existing environment
+./scripts/setup.sh kind               # 2. Setup 3 kind clusters  
+./scripts/quick-install.sh            # 3. Install RamenDR operators + dependencies (choose option 3)
+./examples/deploy-ramendr-s3.sh      # 4. Deploy S3 storage and DR policies
+./scripts/setup-cross-cluster-s3.sh  # 5. Setup cross-cluster S3 networking
+./examples/ramendr-demo.sh            # 6. Run interactive demo
 ```
 
 **📖 Documentation:**

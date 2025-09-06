@@ -24,6 +24,33 @@ log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_step() { echo -e "${PURPLE}🎬 $1${NC}"; }
 log_talk() { echo -e "${CYAN}🗣️  $1${NC}"; }
 
+# KUBECONFIG check for kind demo
+check_kubeconfig_for_kind() {
+    if [ -z "$KUBECONFIG" ]; then
+        log_info "KUBECONFIG not set, setting to default: ~/.kube/config"
+        export KUBECONFIG=~/.kube/config
+    fi
+    
+    # Check for kind contexts
+    if ! kubectl config get-contexts 2>/dev/null | grep -q "kind-"; then
+        log_warning "No kind contexts found"
+        echo ""
+        echo "🔧 To fix this:"
+        echo "   export KUBECONFIG=~/.kube/config"
+        echo "   kubectl config get-contexts"
+        echo ""
+        echo "Or run: ./scripts/fix-kubeconfig.sh"
+        echo ""
+        echo "Press Enter to continue anyway, or Ctrl+C to exit..."
+        read -r
+    else
+        log_success "Kind contexts available"
+    fi
+}
+
+# Check KUBECONFIG before starting
+check_kubeconfig_for_kind
+
 # Function to wait for presenter
 wait_for_presenter() {
     local message=${1:-"Press ENTER to continue..."}
