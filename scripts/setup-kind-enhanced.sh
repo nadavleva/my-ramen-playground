@@ -208,6 +208,7 @@ create_clusters() {
     log_info "🏢 Creating hub cluster (${HUB_CLUSTER})..."
     log_details "This cluster will run RamenDR hub operator and management components"
     kind create cluster --config /tmp/hub-cluster.yaml --wait 60s
+    kind export kubeconfig --name "${HUB_CLUSTER}"
     log_success "Hub cluster created successfully"
     echo ""
     
@@ -215,6 +216,7 @@ create_clusters() {
     log_info "🌊 Creating DR cluster 1 (${DR1_CLUSTER})...)..."
     log_details "This cluster will run RamenDR DR cluster operator and workloads"
     kind create cluster --config /tmp/dr1-cluster.yaml --wait 60s
+    kind export kubeconfig --name "${DR1_CLUSTER}"
     log_success "DR1 cluster created successfully"
     echo ""
     
@@ -225,6 +227,7 @@ create_clusters() {
         log_info "🌊 Creating DR cluster 2 (${DR2_CLUSTER})..."
         log_details "This cluster provides additional DR target for complex scenarios"
         if kind create cluster --config /tmp/dr2-cluster.yaml --wait 60s; then
+            kind export kubeconfig --name "${DR2_CLUSTER}"
             log_success "DR2 cluster created successfully"
         else
             log_warning "DR2 cluster creation failed (not critical for basic testing)"

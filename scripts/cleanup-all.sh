@@ -33,6 +33,10 @@ echo "   • Demo applications and VRGs"
 echo "   • Port-forwards (MinIO console, etc.)"
 echo "   • Docker images (optional)"
 echo ""
+log_warning "⚠️  S3 bucket data cleanup notice:"
+echo "   • RamenDR metadata in MinIO buckets will be cleaned if possible"
+echo "   • Manual bucket cleanup may be required for complete cleanup"
+echo ""
 
 # Confirmation
 read -p "Are you sure you want to proceed? (y/N): " -n 1 -r
@@ -77,7 +81,17 @@ if command -v kind >/dev/null 2>&1; then
             log_info "Deleting cluster: $cluster"
             kind delete cluster --name "$cluster" 2>/dev/null || log_warning "Failed to delete $cluster"
         done
-        log_success "Kind clusters removed"
+        
+        # Clean up kubectl contexts left behind by kind
+        log_info "Cleaning up kubectl contexts..."
+        for cluster in $existing_clusters; do
+            context_name="kind-$cluster"
+            if kubectl config get-contexts "$context_name" >/dev/null 2>&1; then
+                kubectl config delete-context "$context_name" >/dev/null 2>&1 && log_info "Removed context: $context_name"
+            fi
+        done
+        
+        log_success "Kind clusters and contexts removed"
     else
         log_info "No kind clusters found"
     fi
@@ -125,6 +139,15 @@ else
     log_info "   ✅ No kind clusters remaining"
 fi
 
+# Check kubectl contexts
+if kubectl config get-contexts 2>/dev/null | grep -q "kind-"; then
+    remaining_contexts=$(kubectl config get-contexts 2>/dev/null | grep "kind-" | wc -l)
+    log_warning "   ⚠️  $remaining_contexts kind kubectl contexts still exist"
+    kubectl config get-contexts | grep "kind-" | sed 's/^/      /'
+else
+    log_info "   ✅ No kind kubectl contexts remaining"
+fi
+
 # Check port-forwards
 if ps aux | grep -q "kubectl.*port-forward"; then
     log_warning "   ⚠️  Port-forwards still running:"
@@ -141,14 +164,39 @@ else
     log_info "   ✅ No RamenDR/MinIO Docker images found"
 fi
 
+# S3 bucket cleanup notification
+log_warning "   ⚠️  S3 bucket data may require manual cleanup:"
+echo "      • RamenDR metadata in MinIO buckets"
+echo "      • To verify: Access MinIO console or use mc client"
+echo "      • Manual cleanup: ./examples/s3-config/check-minio-backups.sh"
+
 echo ""
 echo "=============================================="
 echo "🎯 Environment Ready for Fresh Demo"
 echo "=============================================="
 echo ""
-log_info "Next steps for fresh demo:"
-echo "   1. Run: ./scripts/setup.sh kind"
-echo "   2. Run: ./scripts/quick-install.sh"
-echo "   3. Run: ./examples/ramendr-demo.sh"
+log_info "🚀 Automated Setup (Recommended):"
+echo "   • Complete demo: ./scripts/fresh-demo.sh"
+echo "   • Failover demo: ./examples/demo-failover.sh (after fresh-demo.sh)"
+echo ""
+log_info "🔧 Manual Setup (Step-by-Step):"
+echo "   1. Setup clusters: ./scripts/setup.sh kind"
+echo "   2. Install operators: ./scripts/quick-install.sh"
+echo "   3. Install OCM CRDs: Apply files from hack/test/"
+echo "   4. Install resource classes: ./scripts/install-missing-resource-classes.sh"
+echo "   5. Deploy S3 storage: ./examples/deploy-ramendr-s3.sh"
+echo "   6. Run basic demo: ./examples/ramendr-demo.sh"
+echo "   7. Run failover demo: ./examples/demo-failover.sh"
+echo ""
+log_info "📚 Documentation:"
+echo "   • Demo guide: ./examples/DEMO_FLOW_GUIDE.md"
+echo "   • Architecture: ./examples/RAMENDR_ARCHITECTURE_GUIDE.md"
+echo "   • Quick start: ./examples/AUTOMATED_DEMO_QUICKSTART.md"
+echo ""
+log_info "🛠️  Troubleshooting:"
+echo "   • Fix KUBECONFIG: export KUBECONFIG=~/.kube/config"
+echo "   • Export contexts: kind export kubeconfig --name <cluster-name>"
+echo "   • Check operators: kubectl get pods -n ramen-system --all-namespaces"
+echo "   • Check CRDs: kubectl get crd | grep ramendr"
 echo ""
 log_success "Ready for a clean RamenDR demo experience!"

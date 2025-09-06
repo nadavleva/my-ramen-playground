@@ -24,7 +24,7 @@ data:
       - s3ProfileName: minio-s3
         s3Bucket: ramen-metadata
         s3Region: us-east-1
-        s3Endpoint: http://minio.minio-system.svc.cluster.local:9000
+        s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
         s3SecretRef:
           name: ramen-s3-secret
           namespace: ramen-system
@@ -50,7 +50,7 @@ data:
       - s3ProfileName: minio-s3
         s3Bucket: ramen-metadata
         s3Region: us-east-1
-        s3Endpoint: http://minio.minio-system.svc.cluster.local:9000
+        s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
         s3SecretRef:
           name: ramen-s3-secret
           namespace: ramen-system

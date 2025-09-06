@@ -4,35 +4,14 @@
 
 set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
-# Logging functions
-log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-log_error() { echo -e "${RED}❌ $1${NC}"; }
+# Source common logging functions
+source "$SCRIPT_DIR/utils.sh"
 
-# Check if kubectl is available and connected
-check_kubectl() {
-    if ! command -v kubectl >/dev/null 2>&1; then
-        log_error "kubectl is not installed or not in PATH"
-        exit 1
-    fi
-    
-    if ! kubectl cluster-info >/dev/null 2>&1; then
-        log_error "kubectl is not connected to a cluster"
-        log_info "Please configure kubectl to connect to your Kubernetes cluster"
-        exit 1
-    fi
-    
-    local cluster_info=$(kubectl cluster-info | head -n1)
-    log_success "Connected to: $cluster_info"
-}
+# Check KUBECONFIG and kubectl before starting
+check_kubeconfig_for_kind
+check_kubectl
 
 # Install Ramen Hub Operator
 install_storage_dependencies() {
@@ -45,8 +24,17 @@ install_storage_dependencies() {
     
     # Install External Snapshotter (required by VolSync)
     log_info "Installing External Snapshotter..."
-    kubectl apply -k "https://github.com/kubernetes-csi/external-snapshotter/config/crd?ref=v6.2.1" || log_warning "Snapshotter CRDs may already exist"
-    kubectl apply -k "https://github.com/kubernetes-csi/external-snapshotter/deploy/kubernetes/snapshot-controller?ref=v6.2.1" || log_warning "Snapshot Controller may already exist"
+    
+    # Install Snapshotter CRDs (using direct YAML files for reliability)
+    log_info "Installing Snapshotter CRDs..."
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || log_warning "VolumeSnapshotClass CRD may already exist"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || log_warning "VolumeSnapshot CRD may already exist"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || log_warning "VolumeSnapshotContent CRD may already exist"
+    
+    # Install Snapshot Controller (using direct YAML files for reliability)
+    log_info "Installing Snapshot Controller..."
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || log_warning "Snapshot Controller RBAC may already exist"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || log_warning "Snapshot Controller may already exist"
     
     # Install VolSync using Helm
     log_info "Installing VolSync for storage replication..."
@@ -69,7 +57,179 @@ install_storage_dependencies() {
         fi
     fi
     
-    log_success "Storage dependencies installed successfully"
+    # Install missing resource classes that VRGs need
+    log_info "Installing missing resource classes for VRG selectors..."
+    
+    # Create VolumeSnapshotClass (required for VRG selectors)
+    log_info "Creating VolumeSnapshotClass for kind clusters..."
+    kubectl apply -f - <<EOF || log_warning "VolumeSnapshotClass may already exist"
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: demo-snapclass
+  labels:
+    app.kubernetes.io/name: ramen-demo
+    velero.io/csi-volumesnapshot-class: "true"
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete
+EOF
+    
+    # Create VolumeReplicationClass (required for VRG selectors)
+    log_info "Creating VolumeReplicationClass for VolSync replication..."
+    kubectl apply -f - <<EOF || log_warning "VolumeReplicationClass may already exist"
+apiVersion: replication.storage.openshift.io/v1alpha1
+kind: VolumeReplicationClass
+metadata:
+  name: demo-replication-class
+  labels:
+    app.kubernetes.io/name: ramen-demo
+    ramendr.openshift.io/replicationID: ramen-volsync
+spec:
+  provisioner: hostpath.csi.k8s.io
+  parameters:
+    copyMethod: Snapshot
+EOF
+    
+    # Create stub CRDs for optional RamenDR resources (to prevent operator crashes)
+    log_info "Creating stub CRDs for optional RamenDR resources..."
+    
+    # NetworkFenceClass
+    kubectl apply -f - <<EOF || log_warning "NetworkFenceClass CRD may already exist"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: networkfenceclasses.csiaddons.openshift.io
+spec:
+  group: csiaddons.openshift.io
+  names:
+    kind: NetworkFenceClass
+    listKind: NetworkFenceClassList
+    plural: networkfenceclasses
+    singular: networkfenceclass
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+EOF
+    
+    # VolumeGroupReplicationClass
+    kubectl apply -f - <<EOF || log_warning "VolumeGroupReplicationClass CRD may already exist"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupreplicationclasses.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  names:
+    kind: VolumeGroupReplicationClass
+    listKind: VolumeGroupReplicationClassList
+    plural: volumegroupreplicationclasses
+    singular: volumegroupreplicationclass
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+EOF
+    
+    # VolumeGroupReplication
+    kubectl apply -f - <<EOF || log_warning "VolumeGroupReplication CRD may already exist"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupreplications.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  names:
+    kind: VolumeGroupReplication
+    listKind: VolumeGroupReplicationList
+    plural: volumegroupreplications
+    singular: volumegroupreplication
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+EOF
+    
+    # VolumeGroupSnapshotClass
+    kubectl apply -f - <<EOF || log_warning "VolumeGroupSnapshotClass CRD may already exist"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io
+spec:
+  group: groupsnapshot.storage.openshift.io
+  names:
+    kind: VolumeGroupSnapshotClass
+    listKind: VolumeGroupSnapshotClassList
+    plural: volumegroupsnapshotclasses
+    singular: volumegroupsnapshotclass
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+EOF
+    
+    # Verify the created resources
+    log_info "Verifying created resources..."
+    
+    # Check VolumeSnapshotClass
+    if kubectl get volumesnapshotclass demo-snapclass >/dev/null 2>&1; then
+        log_success "VolumeSnapshotClass 'demo-snapclass' created successfully"
+    else
+        log_warning "VolumeSnapshotClass 'demo-snapclass' not found"
+    fi
+    
+    # Check VolumeReplicationClass
+    if kubectl get volumereplicationclass demo-replication-class >/dev/null 2>&1; then
+        log_success "VolumeReplicationClass 'demo-replication-class' created successfully"
+    else
+        log_warning "VolumeReplicationClass 'demo-replication-class' not found"
+    fi
+    
+    # Check critical CRDs
+    local crds_to_check=(
+        "volumesnapshots.snapshot.storage.k8s.io"
+        "volumesnapshotclasses.snapshot.storage.k8s.io" 
+        "volumereplications.replication.storage.openshift.io"
+        "volumereplicationclasses.replication.storage.openshift.io"
+        "networkfenceclasses.csiaddons.openshift.io"
+    )
+    
+    local missing_crds=0
+    for crd in "${crds_to_check[@]}"; do
+        if kubectl get crd "$crd" >/dev/null 2>&1; then
+            log_success "CRD '$crd' available"
+        else
+            log_warning "CRD '$crd' not found"
+            ((missing_crds++))
+        fi
+    done
+    
+    if [[ $missing_crds -eq 0 ]]; then
+        log_success "All required CRDs and resource classes installed successfully"
+    else
+        log_warning "$missing_crds CRDs are missing - some functionality may be limited"
+    fi
 }
 
 install_hub_operator() {
@@ -110,6 +270,20 @@ install_hub_operator() {
     
     # Wait for deployment to be ready
     log_info "Waiting for hub operator to be ready..."
+    
+    # Wait for namespace to exist first (with timeout)
+    local namespace_timeout=60  # 60 seconds timeout
+    local elapsed=0
+    while ! kubectl get namespace ramen-system >/dev/null 2>&1; do
+        if [ $elapsed -ge $namespace_timeout ]; then
+            log_error "Timeout waiting for ramen-system namespace to be created"
+            return 1
+        fi
+        log_info "Waiting for ramen-system namespace to be created..."
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    
     kubectl wait --for=condition=available --timeout=300s deployment/ramen-hub-operator -n ramen-system
     
     log_success "Ramen Hub Operator installed successfully"
@@ -158,23 +332,45 @@ install_cluster_operator() {
     
     # Start DR1 deployment in background
     (
+        log_info "🔧 DR1: Switching to kind-ramen-dr1 context..."
         kubectl config use-context kind-ramen-dr1
-        log_info "Installing storage dependencies on ramen-dr1..."
+        if ! kubectl get nodes >/dev/null 2>&1; then
+            log_error "❌ DR1: Cannot connect to kind-ramen-dr1 cluster!"
+            exit 1
+        fi
+        log_info "✅ DR1: Connected to cluster successfully"
+        
+        log_info "🔧 DR1: Installing storage dependencies..."
         install_storage_dependencies
-        log_info "Starting deployment to ramen-dr1..."
-        make deploy-dr-cluster
-        log_info "DR1 deployment completed"
+        
+        log_info "🔧 DR1: Starting deployment to ramen-dr1..."
+        if ! make deploy-dr-cluster; then
+            log_error "❌ DR1: make deploy-dr-cluster failed!"
+            exit 1
+        fi
+        log_success "✅ DR1: Deployment completed successfully"
     ) &
     DR1_PID=$!
     
     # Start DR2 deployment in background  
     (
+        log_info "🔧 DR2: Switching to kind-ramen-dr2 context..."
         kubectl config use-context kind-ramen-dr2
-        log_info "Installing storage dependencies on ramen-dr2..."
+        if ! kubectl get nodes >/dev/null 2>&1; then
+            log_error "❌ DR2: Cannot connect to kind-ramen-dr2 cluster!"
+            exit 1
+        fi
+        log_info "✅ DR2: Connected to cluster successfully"
+        
+        log_info "🔧 DR2: Installing storage dependencies..."
         install_storage_dependencies
-        log_info "Starting deployment to ramen-dr2..."
-        make deploy-dr-cluster
-        log_info "DR2 deployment completed"
+        
+        log_info "🔧 DR2: Starting deployment to ramen-dr2..."
+        if ! make deploy-dr-cluster; then
+            log_error "❌ DR2: make deploy-dr-cluster failed!"
+            exit 1
+        fi
+        log_success "✅ DR2: Deployment completed successfully"
     ) &
     DR2_PID=$!
     
@@ -191,6 +387,20 @@ install_cluster_operator() {
     (
         kubectl config use-context kind-ramen-dr1
         log_info "Checking ramen-dr1 cluster operator readiness..."
+        
+        # Wait for namespace to exist first (with timeout)
+        local namespace_timeout=60
+        local elapsed=0
+        while ! kubectl get namespace ramen-system >/dev/null 2>&1; do
+            if [ $elapsed -ge $namespace_timeout ]; then
+                log_error "Timeout waiting for ramen-system namespace on ramen-dr1"
+                exit 1
+            fi
+            log_info "Waiting for ramen-system namespace to be created on ramen-dr1..."
+            sleep 2
+            elapsed=$((elapsed + 2))
+        done
+        
         kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
         log_info "DR1 operator is ready"
     ) &
@@ -200,6 +410,20 @@ install_cluster_operator() {
     (
         kubectl config use-context kind-ramen-dr2
         log_info "Checking ramen-dr2 cluster operator readiness..."
+        
+        # Wait for namespace to exist first (with timeout)
+        local namespace_timeout=60
+        local elapsed=0
+        while ! kubectl get namespace ramen-system >/dev/null 2>&1; do
+            if [ $elapsed -ge $namespace_timeout ]; then
+                log_error "Timeout waiting for ramen-system namespace on ramen-dr2"
+                exit 1
+            fi
+            log_info "Waiting for ramen-system namespace to be created on ramen-dr2..."
+            sleep 2
+            elapsed=$((elapsed + 2))
+        done
+        
         kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
         log_info "DR2 operator is ready"
     ) &
@@ -216,9 +440,9 @@ install_cluster_operator() {
 verify_installation() {
     log_info "Verifying RamenDR installation..."
     
-    # Check hub operator
-    if kubectl get deployment -n ramen-system ramen-hub-operator >/dev/null 2>&1; then
-        local hub_status=$(kubectl get deployment -n ramen-system ramen-hub-operator -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+    # Check hub operator (on hub cluster)
+    if kubectl get deployment -n ramen-system ramen-hub-operator --context=kind-ramen-hub >/dev/null 2>&1; then
+        local hub_status=$(kubectl get deployment -n ramen-system ramen-hub-operator --context=kind-ramen-hub -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
         if [[ "$hub_status" == "True" ]]; then
             log_success "Hub operator: Running"
         else
@@ -241,14 +465,27 @@ verify_installation() {
     fi
     
     # Check CRDs
-    local crds=(
+    # Hub-specific CRDs (check on hub cluster)
+    local hub_crds=(
         "drpolicies.ramendr.openshift.io"
         "drplacementcontrols.ramendr.openshift.io"
-        "volumereplicationgroups.ramendr.openshift.io"
         "drclusters.ramendr.openshift.io"
     )
     
-    for crd in "${crds[@]}"; do
+    for crd in "${hub_crds[@]}"; do
+        if kubectl get crd "$crd" --context=kind-ramen-hub >/dev/null 2>&1; then
+            log_success "CRD: $crd"
+        else
+            log_error "CRD: $crd (missing)"
+        fi
+    done
+    
+    # Cluster-specific CRDs (check on current cluster)
+    local cluster_crds=(
+        "volumereplicationgroups.ramendr.openshift.io"
+    )
+    
+    for crd in "${cluster_crds[@]}"; do
         if kubectl get crd "$crd" >/dev/null 2>&1; then
             log_success "CRD: $crd"
         else
@@ -259,7 +496,10 @@ verify_installation() {
     # Show pods
     echo ""
     log_info "RamenDR pods:"
-    kubectl get pods -n ramen-system -l "app.kubernetes.io/part-of=ramen"
+    echo "Hub cluster (kind-ramen-hub):"
+    kubectl get pods -n ramen-system -l "app.kubernetes.io/part-of=ramen" --context=kind-ramen-hub 2>/dev/null || echo "  No RamenDR pods found"
+    echo "Current cluster ($(kubectl config current-context)):"
+    kubectl get pods -n ramen-system -l "app.kubernetes.io/part-of=ramen" 2>/dev/null || echo "  No RamenDR pods found"
 }
 
 # Create sample DRPolicy
@@ -272,7 +512,7 @@ create_sample_policy() {
     
     log_info "Creating sample DRPolicy..."
     
-    cat <<EOF | kubectl apply -f -
+    cat <<EOF | kubectl apply --context=kind-ramen-hub -f -
 apiVersion: ramendr.openshift.io/v1alpha1
 kind: DRPolicy
 metadata:
@@ -291,7 +531,7 @@ spec:
 EOF
     
     log_success "Sample DRPolicy created"
-    kubectl get drpolicy sample-dr-policy -o wide
+    kubectl get drpolicy sample-dr-policy --context=kind-ramen-hub -o wide
 }
 
 # Show next steps
@@ -317,6 +557,36 @@ show_next_steps() {
     echo "   kubectl logs -n ramen-system -l app.kubernetes.io/name=ramen-hub-operator"
 }
 
+# Install on all clusters (hub + both DR clusters)
+install_all_clusters() {
+    log_info "🌐 Installing RamenDR operators on all clusters..."
+    
+    # Check that all kind contexts exist
+    local required_contexts=("kind-ramen-hub" "kind-ramen-dr1" "kind-ramen-dr2")
+    for context in "${required_contexts[@]}"; do
+        if ! kubectl config get-contexts -o name | grep -q "^${context}$"; then
+            log_error "Required context '${context}' not found. Please ensure all kind clusters are created."
+            log_info "Run: ./scripts/setup.sh kind"
+            exit 1
+        fi
+    done
+    
+    log_info "✅ All required contexts found: ${required_contexts[*]}"
+    
+    # Install hub operator first
+    log_step "Installing Hub Operator on kind-ramen-hub..."
+    kubectl config use-context kind-ramen-hub
+    install_hub_operator
+    
+    # Install DR cluster operators on both DR clusters
+    log_step "Installing DR Cluster Operators on both DR clusters..."
+    install_cluster_operator
+    
+    log_success "🎉 Multi-cluster installation completed!"
+    log_info "Hub operator: kind-ramen-hub"
+    log_info "DR operators: kind-ramen-dr1, kind-ramen-dr2"
+}
+
 # Main installation function
 main() {
     log_info "🚀 Starting automated RamenDR installation..."
@@ -325,7 +595,7 @@ main() {
     echo "Select installation type:"
     echo "  1) Hub only (for hub cluster)"
     echo "  2) Cluster only (for managed cluster)"
-    echo "  3) Both (for single cluster or testing)"
+    echo "  3) All clusters (automated multi-cluster setup)"
     echo ""
     read -p "Enter choice (1-3): " choice
     
@@ -340,8 +610,7 @@ main() {
             ;;
         3)
             check_kubectl
-            install_hub_operator
-            install_cluster_operator
+            install_all_clusters
             ;;
         *)
             log_error "Invalid choice"

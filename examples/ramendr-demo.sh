@@ -31,6 +31,24 @@ log_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# Load cluster configuration (detects kind vs minikube)
+SCRIPT_DIR="$(dirname "$0")"
+if [[ -f "$SCRIPT_DIR/cluster-config.sh" ]]; then
+    source "$SCRIPT_DIR/cluster-config.sh" 2>/dev/null || {
+        # Fallback to kind if detection fails
+        export CLUSTER_TYPE="kind"
+        export HUB_CONTEXT="kind-ramen-hub"
+        export DR1_CONTEXT="kind-ramen-dr1" 
+        export DR2_CONTEXT="kind-ramen-dr2"
+    }
+else
+    # Fallback to kind if cluster-config.sh not found
+    export CLUSTER_TYPE="kind"
+    export HUB_CONTEXT="kind-ramen-hub"
+    export DR1_CONTEXT="kind-ramen-dr1"
+    export DR2_CONTEXT="kind-ramen-dr2"
+fi
+
 log_step() {
     echo -e "${PURPLE}🚀 $1${NC}"
 }
@@ -38,6 +56,30 @@ log_step() {
 log_check() {
     echo -e "${CYAN}🔍 $1${NC}"
 }
+
+# KUBECONFIG check for kind demo
+check_kubeconfig_for_kind() {
+    if [ -z "$KUBECONFIG" ]; then
+        log_info "KUBECONFIG not set, setting to default: ~/.kube/config"
+        export KUBECONFIG=~/.kube/config
+    fi
+    
+    # Check for kind contexts
+    if ! kubectl config get-contexts 2>/dev/null | grep -q "kind-"; then
+        log_error "No kind contexts found"
+        echo ""
+        echo "🔧 To fix this:"
+        echo "   export KUBECONFIG=~/.kube/config"
+        echo "   kubectl config get-contexts"
+        echo ""
+        echo "Or run: ./scripts/fix-kubeconfig.sh"
+        exit 1
+    fi
+    log_success "Kind contexts available"
+}
+
+# Check KUBECONFIG before starting
+check_kubeconfig_for_kind
 
 # Function to wait for resource to be ready
 wait_for_resource() {
@@ -67,6 +109,10 @@ wait_for_resource() {
 check_s3_contents() {
     log_check "Checking MinIO S3 bucket contents..."
     
+    # Switch to hub context for MinIO access
+    local current_context=$(kubectl config current-context)
+    kubectl config use-context "$HUB_CONTEXT" >/dev/null 2>&1 || true
+    
     # Start port-forward in background
     kubectl port-forward svc/minio -n minio-system 9000:9000 >/dev/null 2>&1 &
     PF_PID=$!
@@ -76,10 +122,19 @@ check_s3_contents() {
     
     # Check bucket contents
     echo "📋 MinIO bucket contents:"
-    mc ls minio/ramen-metadata/ 2>/dev/null || echo "   (Bucket empty or still initializing)"
+    if command -v mc >/dev/null 2>&1; then
+        # Configure mc if not already configured
+        mc alias set minio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1 || true
+        mc ls minio/ramen-metadata/ 2>/dev/null || echo "   (Bucket empty or still initializing)"
+    else
+        echo "   (MinIO client 'mc' not available - install with examples/s3-config/create-minio-bucket.sh)"
+    fi
     
     # Kill port-forward
     kill $PF_PID >/dev/null 2>&1 || true
+    
+    # Switch back to original context
+    kubectl config use-context "$current_context" >/dev/null 2>&1 || true
     
     echo ""
 }
@@ -101,7 +156,22 @@ show_vrg_status() {
 # Function to show operator logs
 show_operator_logs() {
     log_check "RamenDR DR Cluster Operator Logs (last 20 lines):"
-    kubectl logs deployment/ramen-dr-cluster-operator -n ramen-system --tail=20 || log_warning "Could not fetch operator logs"
+    
+    # Try different possible operator deployment names
+    local operator_found=false
+    for operator_name in "ramen-dr-cluster-operator" "ramen-cluster-operator" "ramen-operator"; do
+        if kubectl get deployment "$operator_name" -n ramen-system >/dev/null 2>&1; then
+            kubectl logs deployment/"$operator_name" -n ramen-system --tail=20
+            operator_found=true
+            break
+        fi
+    done
+    
+    if [ "$operator_found" = false ]; then
+        log_warning "No DR cluster operator deployment found"
+        log_info "Available RamenDR deployments:"
+        kubectl get deployments -n ramen-system | grep ramen || echo "   (none found)"
+    fi
     echo ""
 }
 
@@ -114,6 +184,8 @@ main() {
     
     # Check current cluster context
     log_info "Current cluster: $(kubectl config current-context)"
+    log_info "Detected cluster type: $CLUSTER_TYPE"
+    log_info "Using contexts - Hub: $HUB_CONTEXT, DR1: $DR1_CONTEXT, DR2: $DR2_CONTEXT"
     echo ""
     
     # Prerequisites check
@@ -154,16 +226,16 @@ main() {
         log_info "MinIO not found - deploying S3 storage..."
         
         # Switch to hub cluster context for MinIO
-        kubectl config use-context kind-ramen-hub >/dev/null 2>&1 || true
+        kubectl config use-context "$HUB_CONTEXT" >/dev/null 2>&1 || true
         
         # Deploy MinIO S3 storage
         log_info "Creating MinIO deployment..."
-        kubectl apply -f minio-deployment/minio-s3.yaml
+        kubectl apply -f examples/minio-deployment/minio-s3.yaml
         
         # Deploy S3 configuration
         log_info "Configuring S3 credentials and RamenConfig..."
-        kubectl apply -f s3-config/s3-secret.yaml
-        kubectl apply -f s3-config/ramenconfig.yaml
+        kubectl apply -f examples/s3-config/s3-secret.yaml
+        kubectl apply -f examples/s3-config/ramenconfig.yaml
         
         # Wait for MinIO to be ready
         log_info "Waiting for MinIO to be ready..."
@@ -181,14 +253,30 @@ main() {
         log_error "MinIO is not running. Please run: ./deploy-ramendr-s3.sh first"
         exit 1
     fi
-    log_success "MinIO is running" 
+    log_success "MinIO is running"
+    
+    # Switch to DR1 cluster for application deployment and demo
+    log_info "Switching to DR1 cluster for demo..."
+    kubectl config use-context "$DR1_CONTEXT" >/dev/null 2>&1 || {
+        log_error "Failed to switch to DR1 context: $DR1_CONTEXT"
+        log_info "Available contexts:"
+        kubectl config get-contexts | grep kind
+        exit 1
+    }
+    log_success "Using DR1 cluster: $DR1_CONTEXT"
+    
     # Step 2: Deploy test application with correct labels
     log_step "Step 2: Deploying nginx test application with PVC..."
-    kubectl apply -f test-application/nginx-with-pvc.yaml
+    kubectl apply -f examples/test-application/nginx-with-pvc.yaml
     
-    # Add the required label to the PVC for VRG selection
-    log_info "Adding protection label to nginx PVC..."
-    kubectl label pvc nginx-pvc -n nginx-test app=nginx-test --overwrite
+    # Verify PVC is labeled correctly for VRG selection
+    log_info "Verifying PVC labels for VRG selection..."
+    if kubectl get pvc nginx-pvc -n nginx-test -o jsonpath='{.metadata.labels.app}' | grep -q "nginx-test"; then
+        log_success "PVC nginx-pvc is properly labeled"
+    else
+        log_warning "Adding missing label to PVC..."
+        kubectl label pvc nginx-pvc -n nginx-test app=nginx-test --overwrite
+    fi
     
     # Wait for application to be ready
     wait_for_resource pod nginx-test nginx-test 60 || true
@@ -205,7 +293,7 @@ main() {
     
     # Step 4: Create VolumeReplicationGroup
     log_step "Step 4: Creating VolumeReplicationGroup (VRG)..."
-    kubectl apply -f test-application/nginx-vrg-correct.yaml
+    kubectl apply -f examples/test-application/nginx-vrg-correct.yaml
     
     # Wait for VRG to be created
     wait_for_resource vrg nginx-test-vrg nginx-test 30
@@ -247,9 +335,14 @@ main() {
     echo "==============================="
     
     log_check "RamenDR Resources:"
-    echo "DRClusters: $(kubectl get drclusters -n ramen-system --no-headers | wc -l)"
-    echo "DRPolicies: $(kubectl get drpolicies -n ramen-system --no-headers | wc -l)"
-    echo "VRGs: $(kubectl get vrg -A --no-headers | wc -l)"
+    # Check hub resources (switch to hub context temporarily)
+    local current_context=$(kubectl config current-context)
+    kubectl config use-context "$HUB_CONTEXT" >/dev/null 2>&1 || true
+    echo "DRClusters: $(kubectl get drclusters -n ramen-system --no-headers 2>/dev/null | wc -l)"
+    echo "DRPolicies: $(kubectl get drpolicies -n ramen-system --no-headers 2>/dev/null | wc -l)"
+    # Switch back to DR cluster for VRG check
+    kubectl config use-context "$current_context" >/dev/null 2>&1 || true
+    echo "VRGs: $(kubectl get vrg -A --no-headers 2>/dev/null | wc -l)"
     echo ""
     
     log_check "Protected Application:"
@@ -272,8 +365,8 @@ main() {
     echo ""
     
     log_info "🧹 To clean up:"
-    echo "   kubectl delete -f test-application/nginx-vrg-correct.yaml"
-    echo "   kubectl delete -f test-application/nginx-with-pvc.yaml"
+    echo "   kubectl delete -f examples/test-application/nginx-vrg-correct.yaml"
+    echo "   kubectl delete -f examples/test-application/nginx-with-pvc.yaml"
     echo ""
 }
 
@@ -313,12 +406,61 @@ cleanup_demo() {
     log_step "Cleaning up demo resources..."
     
     log_info "Removing VRG..."
-    kubectl delete -f test-application/nginx-vrg-correct.yaml --ignore-not-found=true
+    kubectl delete -f examples/test-application/nginx-vrg-correct.yaml --ignore-not-found=true
     
     log_info "Removing test application..."
-    kubectl delete -f test-application/nginx-with-pvc.yaml --ignore-not-found=true
+    kubectl delete -f examples/test-application/nginx-with-pvc.yaml --ignore-not-found=true
+    
+    # Cleanup S3 bucket data
+    log_info "Checking S3 bucket cleanup..."
+    cleanup_s3_bucket
     
     log_success "Demo cleanup completed!"
+}
+
+# S3 bucket cleanup function
+cleanup_s3_bucket() {
+    # Check if MinIO is accessible
+    if kubectl get pods -n minio-system -l app=minio >/dev/null 2>&1; then
+        log_info "Attempting to clean S3 bucket data..."
+        
+        # Setup port-forward in background
+        kubectl port-forward -n minio-system service/minio 9000:9000 >/dev/null 2>&1 &
+        PF_PID=$!
+        sleep 3
+        
+        # Try to clean bucket using mc client
+        if command -v mc >/dev/null 2>&1; then
+            # Configure mc client
+            mc alias set minio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1 || true
+            
+            # Remove bucket contents
+            if mc ls minio/ramen-metadata >/dev/null 2>&1; then
+                log_info "Cleaning ramen-metadata bucket contents..."
+                mc rm --recursive --force minio/ramen-metadata/ 2>/dev/null || true
+                log_success "S3 bucket contents cleaned"
+            else
+                log_info "No ramen-metadata bucket found"
+            fi
+        else
+            log_warning "MinIO client (mc) not available - bucket cleanup skipped"
+            log_info "Manual cleanup: Access MinIO console and delete bucket contents"
+        fi
+        
+        # Clean up port-forward
+        kill $PF_PID 2>/dev/null || true
+    else
+        log_info "MinIO not running - S3 cleanup skipped"
+    fi
+    
+    # Important notification
+    echo ""
+    log_warning "🚨 S3 Bucket Data Notice:"
+    echo "   • RamenDR metadata may remain in ramen-metadata bucket"
+    echo "   • For complete cleanup, manually delete bucket contents via:"
+    echo "     - MinIO console: http://localhost:9001 (if running)"
+    echo "     - CLI: mc rm --recursive --force minio/ramen-metadata/"
+    echo ""
 }
 
 # Status only function
