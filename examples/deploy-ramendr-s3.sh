@@ -26,10 +26,21 @@ log_success() { echo -e "${GREEN}✅ $1${NC}"; }
 log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_error() { echo -e "${RED}❌ $1${NC}"; }
 
-# Configuration
-HUB_CONTEXT="${HUB_CONTEXT:-kind-ramen-hub}"
-DR1_CONTEXT="${DR1_CONTEXT:-kind-ramen-dr1}"
-DR2_CONTEXT="${DR2_CONTEXT:-kind-ramen-dr2}"
+# Load cluster configuration
+SCRIPT_DIR="$(dirname "$0")"
+if [[ -f "$SCRIPT_DIR/cluster-config.sh" ]]; then
+    source "$SCRIPT_DIR/cluster-config.sh" 2>/dev/null || {
+        # Fallback to kind contexts with environment variable override
+        HUB_CONTEXT="${HUB_CONTEXT:-kind-ramen-hub}"
+        DR1_CONTEXT="${DR1_CONTEXT:-kind-ramen-dr1}"
+        DR2_CONTEXT="${DR2_CONTEXT:-kind-ramen-dr2}"
+    }
+else
+    # Fallback to kind contexts with environment variable override
+    HUB_CONTEXT="${HUB_CONTEXT:-kind-ramen-hub}"
+    DR1_CONTEXT="${DR1_CONTEXT:-kind-ramen-dr1}"
+    DR2_CONTEXT="${DR2_CONTEXT:-kind-ramen-dr2}"
+fi
 EXAMPLES_DIR="$(dirname "$0")"
 DRY_RUN=false
 
@@ -132,9 +143,22 @@ main() {
         exit 1
     fi
     
-    # Step 5: Verification
+    # Step 5: Create S3 bucket for RamenDR metadata
+    log_info "🪣 Step 5: Creating ramen-metadata bucket"
+    
     if [[ "$DRY_RUN" == "false" ]]; then
-        log_info "🔍 Step 5: Verifying deployment"
+        # Run the bucket creation script
+        if [[ -f "$EXAMPLES_DIR/s3-config/create-minio-bucket.sh" ]]; then
+            bash "$EXAMPLES_DIR/s3-config/create-minio-bucket.sh"
+            log_success "S3 bucket created successfully"
+        else
+            log_warning "Bucket creation script not found, bucket will be created automatically by RamenDR"
+        fi
+    fi
+    
+    # Step 6: Verification
+    if [[ "$DRY_RUN" == "false" ]]; then
+        log_info "🔍 Step 6: Verifying deployment"
         
         echo ""
         log_info "MinIO Status:"
@@ -159,7 +183,8 @@ main() {
         echo "   1. Access MinIO console: kubectl port-forward -n minio-system service/minio 9001:9001"
         echo "   2. Open browser to: http://localhost:9001"
         echo "   3. Login with: minioadmin / minioadmin"
-        echo "   4. Create test applications with PVCs for replication testing"
+        echo "   4. Look for 'ramen-metadata' bucket in the console"
+        echo "   5. Run: ./examples/ramendr-demo.sh to test applications with PVCs"
         echo ""
         log_info "📚 Documentation: See examples/README.md for detailed usage"
     fi

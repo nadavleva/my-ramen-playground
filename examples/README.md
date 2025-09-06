@@ -26,9 +26,11 @@ examples/
 
 ### **Prerequisites**
 1. **3 Kubernetes clusters** (1 hub + 2 DR clusters)
-2. **RamenDR operators** installed on all clusters
-3. **VolSync** installed on DR clusters  
-4. **VolumeReplication CRDs** installed
+2. **kubectl** configured with access to all clusters
+3. **Docker** or **Podman** (for kind clusters)
+4. **Helm** (for VolSync installation)
+
+> **Note**: RamenDR operators, CRDs, and resource classes are automatically installed by `quick-install.sh`
 
 ### **⚡ Automated Setup (Recommended)**
 
@@ -38,17 +40,50 @@ For a complete automated setup from scratch:
 # One-command setup: clusters + operators + demo
 ./scripts/fresh-demo.sh
 
-# Or step-by-step:
-./scripts/cleanup-all.sh      # Clean existing environment
-./scripts/setup.sh kind       # Setup kind clusters  
-./scripts/quick-install.sh    # Install RamenDR operators
-./examples/ramendr-demo.sh    # Run demo
+# Or step-by-step (6-step automated flow):
+./scripts/cleanup-all.sh              # 1. Clean existing environment
+./scripts/setup.sh kind               # 2. Setup kind clusters  
+./scripts/quick-install.sh            # 3. Install RamenDR operators + all CRDs + resource classes (choose option 3)
+./examples/deploy-ramendr-s3.sh      # 4. Deploy S3 storage and DR policies
+./scripts/setup-cross-cluster-s3.sh  # 5. Setup cross-cluster S3 networking
+./examples/ramendr-demo.sh            # 6. Run demo with VRG creation
 ```
+
+> **Note**: The 6-step flow includes automated cross-cluster S3 setup that was added to fix connectivity issues between kind clusters.
+
+### **🔧 What `quick-install.sh` Installs Automatically**
+
+The enhanced `quick-install.sh` script now provides **complete automation** and installs:
+
+**RamenDR Operators:**
+- ✅ **Hub Operator** (on hub cluster) 
+- ✅ **DR Cluster Operators** (on DR1 and DR2 clusters)
+
+**Storage CRDs (all clusters):**
+- ✅ **VolumeSnapshot CRDs** (VolumeSnapshot, VolumeSnapshotClass, VolumeSnapshotContent)
+- ✅ **VolumeReplication CRDs** (VolumeReplication, VolumeReplicationClass)
+- ✅ **External Snapshotter v6.3.0** (CRDs + controllers)
+
+**Resource Classes (DR clusters):**
+- ✅ **VolumeSnapshotClass** `demo-snapclass` (with `velero.io/csi-volumesnapshot-class=true`)
+- ✅ **VolumeReplicationClass** `demo-replication-class` (with `ramendr.openshift.io/replicationID=ramen-volsync`)
+
+**Optional CRDs (prevent operator failures):**
+- ✅ **NetworkFenceClass** (stub CRD)
+- ✅ **VolumeGroupReplication** (stub CRD)
+- ✅ **VolumeGroupSnapshotClass** (stub CRD)
+
+**Storage Dependencies:**
+- ✅ **VolSync** (via Helm on DR clusters)
+- ✅ **Snapshot Controller** (for VolumeSnapshot support)
+
+> **Result**: No manual CRD installation required! All dependencies are automatically configured.
 
 **📖 Documentation & Demos:**
 - [`AUTOMATED_DEMO_QUICKSTART.md`](AUTOMATED_DEMO_QUICKSTART.md) - Quick demo guide
 - [`COMPLETE_AUTOMATED_SETUP.md`](COMPLETE_AUTOMATED_SETUP.md) - Full setup guide  
 - [`RAMENDR_ARCHITECTURE_GUIDE.md`](RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture & code deep-dive
+- [`RAMENDR_OBJECTS_EXAMPLES.md`](RAMENDR_OBJECTS_EXAMPLES.md) - **Complete RamenDR objects reference with copy-paste examples**
 
 **🎬 Demo & Presentation Resources:**
 - [`demo-assistant.sh`](demo-assistant.sh) - Interactive demo assistant for presentations
@@ -286,6 +321,168 @@ kubectl get volumereplicationclass
 # Check operator logs
 kubectl logs -n ramen-system deployment/ramen-dr-cluster-operator
 ```
+
+## 📖 **RamenDR Objects Reference**
+
+### **Core RamenDR Resources**
+
+#### **🏛️ DRPolicy** - Disaster Recovery Policy
+Defines disaster recovery policy between clusters:
+
+```yaml
+# examples/dr-policy/drpolicy.yaml
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPolicy
+metadata:
+  name: ramen-dr-policy
+  namespace: ramen-system
+spec:
+  drClusterSet:
+  - name: ramen-dr1
+    region: east
+  - name: ramen-dr2
+    region: west
+  schedulingInterval: 5m
+  replicationClassSelector:
+    matchLabels:
+      ramendr.openshift.io/replicationID: ramen-volsync
+  volumeSnapshotClassSelector:
+    matchLabels:
+      velero.io/csi-volumesnapshot-class: "true"
+```
+
+#### **🌐 DRCluster** - Disaster Recovery Cluster Registration
+Registers clusters in disaster recovery configuration:
+
+```yaml
+# examples/dr-policy/drclusters.yaml
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr1
+spec:
+  s3ProfileName: minio-s3
+  region: east
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr2
+spec:
+  s3ProfileName: minio-s3
+  region: west
+```
+
+#### **📦 VolumeReplicationGroup (VRG)** - Application Volume Protection
+Manages volume replication for applications:
+
+```yaml
+# examples/test-application/nginx-vrg-correct.yaml
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: VolumeReplicationGroup
+metadata:
+  name: nginx-test-vrg
+  namespace: nginx-test
+spec:
+  pvcSelector:
+    matchLabels:
+      app: nginx-test
+  replicationState: primary  # or secondary
+  s3Profiles:
+  - minio-s3
+  sync:
+    mode: sync
+    schedulingInterval: "5m"
+```
+
+### **OpenShift ACM Integration (Optional)**
+
+#### **🎯 DRPlacementControl** - Application Placement Management
+**When to use**: OpenShift with Advanced Cluster Management (ACM)  
+**Kind demo**: **NOT NEEDED** - We create VRGs directly
+
+```yaml
+# examples/test-application/nginx-drpc.yaml (OpenShift ACM only)
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPlacementControl
+metadata:
+  name: nginx-test-drpc
+  namespace: nginx-test
+spec:
+  drPolicyRef:
+    name: ramen-dr-policy
+    namespace: ramen-system
+  preferredCluster: ramen-dr1
+  failoverCluster: ramen-dr2
+  pvcSelector:
+    matchLabels:
+      app: nginx-test
+  # Requires: PlacementRule + ManagedCluster CRDs (OpenShift ACM)
+  # placementRef:
+  #   kind: PlacementRule
+  #   name: nginx-test-placement
+```
+
+### **Resource Classes & Dependencies**
+
+#### **📸 VolumeSnapshotClass** - Snapshot Configuration
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: demo-snapclass
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete
+```
+
+#### **🔄 VolumeReplicationClass** - Replication Configuration
+```yaml
+apiVersion: replication.storage.openshift.io/v1alpha1
+kind: VolumeReplicationClass
+metadata:
+  name: demo-replication-class
+  labels:
+    ramendr.openshift.io/replicationID: ramen-volsync
+spec:
+  provisioner: hostpath.csi.k8s.io
+  parameters:
+    copyMethod: Snapshot
+```
+
+### **S3 Configuration**
+
+#### **🗄️ RamenConfig** - S3 Backend Configuration
+```yaml
+# examples/s3-config/ramenconfig.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-dr-cluster-operator-config
+  namespace: ramen-system
+data:
+  ramen_manager_config.yaml: |
+    s3StoreProfiles:
+    - s3ProfileName: minio-s3
+      s3Bucket: ramen-metadata
+      s3Region: us-east-1
+      s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
+      s3SecretRef:
+        name: ramen-s3-secret
+        namespace: ramen-system
+```
+
+### **🚀 Demo Workflow Summary**
+
+| **Environment** | **Required Objects** | **Approach** |
+|-----------------|---------------------|--------------|
+| **Kind/Lightweight K8s** | DRPolicy + DRCluster + VRG | Direct VRG creation (our demo) |
+| **OpenShift + ACM** | DRPolicy + DRCluster + DRPlacementControl | ACM manages VRGs automatically |
+| **Hybrid** | All objects available | Flexible deployment options |
+
+> **💡 Answer: Do we need DRPlacementControls for the demo?**  
+> **NO** - Our kind demo works perfectly **without** DRPlacementControls by creating VRGs directly. DRPlacementControls are only needed in OpenShift ACM environments where you want automated application placement management.
 
 ### **Known Limitations**
 - **kind clusters**: May have networking issues with API server timeouts

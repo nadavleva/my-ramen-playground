@@ -30,8 +30,23 @@ describe_resource() {
 }
 
 echo ""
-echo "🏢 === HUB CLUSTER STATUS ==="
-HUB_CONTEXT="kind-ramen-hub"
+# Load cluster configuration
+SCRIPT_DIR="$(dirname "$0")/.."
+if [[ -f "$SCRIPT_DIR/cluster-config.sh" ]]; then
+    source "$SCRIPT_DIR/cluster-config.sh" 2>/dev/null || {
+        # Fallback to kind contexts
+        HUB_CONTEXT="kind-ramen-hub"
+        DR1_CONTEXT="kind-ramen-dr1"
+        DR2_CONTEXT="kind-ramen-dr2"
+    }
+else
+    # Fallback to kind contexts
+    HUB_CONTEXT="kind-ramen-hub"
+    DR1_CONTEXT="kind-ramen-dr1"
+    DR2_CONTEXT="kind-ramen-dr2"
+fi
+
+echo "🏢 === HUB CLUSTER STATUS ($HUB_CONTEXT) ==="
 
 echo "1. DRCluster Resources:"
 check_resource "drclusters" "$HUB_CONTEXT"
@@ -50,8 +65,6 @@ kubectl --context="$HUB_CONTEXT" get pods -n ramen-system -l app.kubernetes.io/n
 
 echo ""
 echo "🌊 === DR CLUSTER STATUS ==="
-DR1_CONTEXT="kind-ramen-dr1"
-DR2_CONTEXT="kind-ramen-dr2"
 
 for dr_context in "$DR1_CONTEXT" "$DR2_CONTEXT"; do
     echo ""

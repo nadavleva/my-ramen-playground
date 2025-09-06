@@ -49,6 +49,21 @@ spec:
       labels:
         app: nginx-test
     spec:
+      initContainers:
+      - name: setup-content
+        image: busybox:latest
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "<h1>RamenDR Test Application</h1>" > /usr/share/nginx/html/index.html
+            echo "<p>Deployment time: $(date)</p>" >> /usr/share/nginx/html/index.html
+            echo "<p>Hostname: $(hostname)</p>" >> /usr/share/nginx/html/index.html
+            echo "<p>Data protected by RamenDR</p>" >> /usr/share/nginx/html/index.html
+            echo "RamenDR test content created successfully"
+        volumeMounts:
+        - name: nginx-storage
+          mountPath: /usr/share/nginx/html
       containers:
         - name: nginx
           image: nginx:latest
@@ -57,16 +72,12 @@ spec:
           volumeMounts:
             - name: nginx-storage
               mountPath: /usr/share/nginx/html
-          # Create test data
-          command: ["/bin/sh"]
-          args:
-            - -c
-            - |
-              echo "<h1>RamenDR Test Application</h1>" > /usr/share/nginx/html/index.html
-              echo "<p>Deployment time: $(date)</p>" >> /usr/share/nginx/html/index.html
-              echo "<p>Hostname: $(hostname)</p>" >> /usr/share/nginx/html/index.html
-              echo "<p>Data protected by RamenDR</p>" >> /usr/share/nginx/html/index.html
-              nginx -g "daemon off;"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
       volumes:
       - name: nginx-storage
         persistentVolumeClaim:
