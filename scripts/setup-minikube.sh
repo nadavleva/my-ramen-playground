@@ -143,7 +143,7 @@ create_clusters() {
         --memory="$MEMORY" \
         --cpus="$CPUS" \
         --kubernetes-version="v1.27.3" \
-        --addons=storage-provisioner,default-storageclass \
+        --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
         --wait=true
     
     log_success "DR1 cluster created successfully"
@@ -162,7 +162,7 @@ create_clusters() {
             --memory="$MEMORY" \
             --cpus="$CPUS" \
             --kubernetes-version="v1.27.3" \
-            --addons=storage-provisioner,default-storageclass \
+            --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
             --wait=true; then
             log_success "DR2 cluster created successfully"
         else

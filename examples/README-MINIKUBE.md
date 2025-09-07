@@ -64,7 +64,14 @@ The setup creates 3 minikube profiles:
 - **Memory**: `4096MB` per cluster
 - **CPUs**: `2` per cluster
 - **Kubernetes**: `v1.27.3`
-- **Addons**: `storage-provisioner`, `default-storageclass`
+- **Addons**: `storage-provisioner`, `default-storageclass`, `volumesnapshots`, `csi-hostpath-driver`
+
+### **CSI and Storage Support:**
+✅ **Volume Snapshots**: Enabled via `volumesnapshots` addon  
+✅ **CSI Hostpath Driver**: Enabled via `csi-hostpath-driver` addon  
+✅ **Storage Classes**: Multiple classes for different scenarios  
+✅ **Persistent Storage**: Real persistent storage (better than kind)  
+✅ **VolSync Compatible**: CSI driver supports snapshot-based replication
 
 ### **Custom Configuration:**
 ```bash
