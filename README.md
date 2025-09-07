@@ -164,20 +164,21 @@ For a complete hands-on experience with RamenDR:
 ./scripts/cleanup-all.sh              # 1. Clean existing environment
 ./scripts/setup.sh kind               # 2. Setup 3 kind clusters  
 ./scripts/quick-install.sh            # 3. Install RamenDR operators + dependencies (choose option 3)
-./examples/deploy-ramendr-s3.sh      # 4. Deploy S3 storage and DR policies
+./demo/scripts/deploy-ramendr-s3.sh   # 4. Deploy S3 storage and DR policies
 ./scripts/setup-cross-cluster-s3.sh  # 5. Setup cross-cluster S3 networking
-./examples/ramendr-demo.sh            # 6. Run interactive demo
+./demo/scripts/kind_ramendr-demo.sh   # 6. Run KIND interactive demo
 ```
 
 **📖 Documentation:**
-- [`examples/AUTOMATED_DEMO_QUICKSTART.md`](examples/AUTOMATED_DEMO_QUICKSTART.md) - Quick demo guide
-- [`examples/RAMENDR_ARCHITECTURE_GUIDE.md`](examples/RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture deep-dive
-- [`examples/`](examples/) - Complete configuration examples
+- [`demo/docs/MINIKUBE_AUTOMATED_DEMO_QUICKSTART.md`](demo/docs/MINIKUBE_AUTOMATED_DEMO_QUICKSTART.md) - MINIKUBE demo guide
+- [`demo/docs/RAMENDR_ARCHITECTURE_GUIDE.md`](demo/docs/RAMENDR_ARCHITECTURE_GUIDE.md) - Architecture deep-dive
+- [`demo/docs/MINIKUBE_TROUBLESHOOTING_GUIDE.md`](demo/docs/MINIKUBE_TROUBLESHOOTING_GUIDE.md) - 🔧 Connectivity & S3 troubleshooting
+- [`demo/`](demo/) - Complete demo setup with organized structure
 
 **🎬 Demo & Presentations:**
-- [`examples/demo-assistant.sh`](examples/demo-assistant.sh) - Interactive presentation assistant
-- [`examples/DEMO_FLOW_GUIDE.md`](examples/DEMO_FLOW_GUIDE.md) - Complete demo script (15-20 min)
-- [`examples/DEMO_CHEAT_SHEET.md`](examples/DEMO_CHEAT_SHEET.md) - Quick command reference
+- [`demo/scripts/demo-assistant.sh`](demo/scripts/demo-assistant.sh) - Interactive presentation assistant
+- [`demo/docs/DEMO_FLOW_GUIDE.md`](demo/docs/DEMO_FLOW_GUIDE.md) - Complete demo script (15-20 min)
+- [`demo/docs/DEMO_CHEAT_SHEET.md`](demo/docs/DEMO_CHEAT_SHEET.md) - Quick command reference
 
 ### 🔧 **Manual Configuration**
 

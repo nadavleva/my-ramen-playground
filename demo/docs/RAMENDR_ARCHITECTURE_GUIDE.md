@@ -148,6 +148,12 @@ spec:
 
 **Purpose**: Defines the disaster recovery policy that governs replication between clusters. Specifies which clusters participate in DR, replication intervals, and storage class selectors.
 
+**🔍 Key Discovery**: DRPolicy can **automatically create VolumeReplicationGroups (VRGs)** when:
+- A DRPolicy exists with proper cluster and storage class selectors
+- Applications with matching PVCs are detected
+- No explicit VRG already exists for the application
+- This works in both OpenShift ACM and lightweight Kubernetes environments
+
 **File**: [`api/v1alpha1/drpolicy_types.go`](../api/v1alpha1/drpolicy_types.go)
 
 **Demo YAML Example**:
@@ -184,7 +190,11 @@ spec:
 
 #### **3. 🎯 DRPlacementControl (DRPC)** - Application Placement Management
 
-**Purpose**: Manages application placement and automatically creates VRGs. **Only needed with OpenShift ACM**. For kind/lightweight Kubernetes, create VRGs directly.
+**Purpose**: Manages application placement and automatically creates VRGs in **OpenShift ACM environments**. 
+
+**Note**: In lightweight Kubernetes (kind/minikube), VRGs can be created either:
+1. **Automatically** by DRPolicy (when matching applications are detected)
+2. **Manually** by creating VRG resources directly
 
 **File**: [`api/v1alpha1/drplacementcontrol_types.go`](../api/v1alpha1/drplacementcontrol_types.go)
 
@@ -360,6 +370,30 @@ RamenDR also defines several operational CRDs for advanced features:
 3. **Disaster Recovery**: Failover by switching VRG `replicationState`
 
 ## 🔗 **Controller Logic**
+
+### **🔗 Object Relationship & Automatic Creation**
+
+**Based on demo findings and troubleshooting:**
+
+```mermaid
+graph TD
+    DRPolicy["🏛️ DRPolicy"] --> |"Auto-detects PVCs"| VRG["📦 VRG"]
+    DRPC["🎯 DRPC"] --> |"Creates (ACM only)"| VRG
+    VRG --> |"Protects"| PVC["💾 PVC"]
+    VRG --> |"Creates"| VR["🔄 VolumeReplication"]
+    VRG --> |"Manages"| ReplicationSource["📤 ReplicationSource"]
+    VRG --> |"Manages"| ReplicationDestination["📥 ReplicationDestination"]
+    VRG --> |"Backup to"| S3["☁️ S3 Storage"]
+    
+    style DRPolicy fill:#4ecdc4
+    style VRG fill:#45b7d1
+    style PVC fill:#96ceb4
+```
+
+#### **Automatic VRG Creation Triggers:**
+1. **DRPolicy Method**: When DRPolicy detects applications with PVCs matching its selectors
+2. **DRPC Method**: When DRPC explicitly manages application placement (ACM environments)
+3. **Manual Method**: Direct creation of VRG resources (always works)
 
 ### **VRG Controller Workflow**
 **File**: [`internal/controller/volumereplicationgroup_controller.go`](../internal/controller/volumereplicationgroup_controller.go)
@@ -783,6 +817,55 @@ spec:
     replication.storage.openshift.io/replication-secret-name: rook-csi-rbd-provisioner
     replication.storage.openshift.io/replication-secret-namespace: openshift-storage
 ```
+
+## 📦 **S3 Configuration Reference**
+
+### **Critical Field Names & Structure (From Demo Troubleshooting)**
+
+```yaml
+# CORRECT RamenConfig structure
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: RamenConfig
+metadata:
+  name: ramen-config
+  namespace: ramen-system
+# CRITICAL: Array format, not object
+s3StoreProfiles:
+- s3ProfileName: minio-s3
+  s3Bucket: ramen-metadata
+  # FIELD NAME IS CRITICAL - found in api/v1alpha1/ramenconfig_types.go:61
+  s3CompatibleEndpoint: "http://HOST_IP:9000"  # NOT s3Endpoint!
+  s3Region: us-east-1
+  s3SecretRef:
+    name: ramen-s3-secret
+    namespace: ramen-system
+```
+
+### **Required Resources on DR Clusters**
+
+1. **S3 Secret** (MUST exist):
+```bash
+kubectl create secret generic ramen-s3-secret \
+  --namespace ramen-system \
+  --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
+  --from-literal=AWS_SECRET_ACCESS_KEY=minioadmin
+```
+
+2. **RamenConfig ConfigMap** (MUST exist):
+```bash
+kubectl create configmap ramen-dr-cluster-config \
+  --namespace ramen-system \
+  --from-file=ramen_manager_config.yaml
+```
+
+### **S3 Troubleshooting Checklist**
+
+- [ ] ✅ Field name: `s3CompatibleEndpoint` (not `s3Endpoint`)
+- [ ] ✅ Array format: `s3StoreProfiles: []` (not `{}`)
+- [ ] ✅ Secret exists: `ramen-s3-secret` on DR clusters
+- [ ] ✅ ConfigMap exists: `ramen-dr-cluster-config` on DR clusters
+- [ ] ✅ Connectivity: DR clusters can reach S3 endpoint
+- [ ] ✅ Cross-cluster: MinIO accessible from all clusters
 
 ##### **DRPolicy for OpenShift Clusters**
 

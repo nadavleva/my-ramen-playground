@@ -198,18 +198,29 @@ if [ -z "$START_FROM_PHASE" ] || [ "$START_FROM_PHASE" -le 1 ]; then
     # Create clusters with minimal resources and only required addons
     for profile in "$HUB_PROFILE" "$DR1_PROFILE" "$DR2_PROFILE"; do
         log_info "Creating $profile with minimal footprint..."
-        minikube start -p "$profile" \
+        
+        # Try to create cluster with error handling
+        if ! minikube start -p "$profile" \
             --cpus=2 --memory=3072 --disk-size=8g \
             --driver=docker --kubernetes-version=v1.27.3 \
             --addons=storage-provisioner,default-storageclass \
             --disable-metrics=true \
             --extra-config=kubelet.authentication-token-webhook=false \
-            --extra-config=kubelet.housekeeping-interval=5m
+            --extra-config=kubelet.housekeeping-interval=5m; then
             
+            if [[ "$profile" == *"dr2"* ]]; then
+                log_warning "DR2 failed to start - continuing with 2-cluster demo (Hub + DR1)"
+                continue
+            else
+                log_error "Critical cluster $profile failed to start"
+                exit 1
+            fi
+        fi
+        
         # Enable required storage addons only for DR clusters
         if [[ "$profile" == *"dr"* ]]; then
-            minikube -p "$profile" addons enable csi-hostpath-driver
-            minikube -p "$profile" addons enable volumesnapshots
+            minikube -p "$profile" addons enable csi-hostpath-driver || log_warning "Failed to enable csi-hostpath-driver on $profile"
+            minikube -p "$profile" addons enable volumesnapshots || log_warning "Failed to enable volumesnapshots on $profile"
         fi
         
         log_success "$profile created successfully"
@@ -235,8 +246,9 @@ if [ -z "$START_FROM_PHASE" ] || [ "$START_FROM_PHASE" -le 2 ]; then
         # Volume Replication CRDs (including missing VolumeGroup CRDs)
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml
-        kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplications.yaml
-        kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplicationclasses.yaml
+        # Use local VolumeGroup CRDs (404 URLs fixed)
+        kubectl --context="$profile" apply -f ../../hack/test/replication.storage.openshift.io_volumegroupreplications.yaml
+        kubectl --context="$profile" apply -f ../../hack/test/replication.storage.openshift.io_volumegroupreplicationclasses.yaml
         
         # Missing stub CRDs that operators expect
         kubectl --context="$profile" apply -f - <<EOF
@@ -288,7 +300,7 @@ EOF
     
     # Install RamenDR CRDs using Makefile
     log_info "Installing RamenDR CRDs..."
-    make install KUSTOMIZE=./bin/kustomize
+    make install KUSTOMIZE=../../bin/kustomize
 fi
 
 # PHASE 3: VolSync Installation
@@ -296,11 +308,49 @@ if [ -z "$START_FROM_PHASE" ] || [ "$START_FROM_PHASE" -le 3 ]; then
     log_step "PHASE 3: Installing VolSync on DR clusters"
     
     for profile in "$DR1_PROFILE" "$DR2_PROFILE"; do
+        # Skip if cluster doesn't exist (DR2 fallback)
+        if ! minikube status -p "$profile" >/dev/null 2>&1; then
+            log_warning "Skipping VolSync installation on $profile - cluster not available"
+            continue
+        fi
+        
         log_info "Installing VolSync on $profile..."
-        helm --kube-context="$profile" repo add backube https://backube.github.io/helm-charts/ || true
-        helm --kube-context="$profile" repo update
-        helm --kube-context="$profile" upgrade --install --create-namespace --namespace volsync-system volsync backube/volsync
-        log_success "VolSync installed on $profile"
+        kubectl --context="$profile" create namespace volsync-system --dry-run=client -o yaml | kubectl --context="$profile" apply -f -
+        
+        # Create basic VolSync RBAC (simplified for demo)
+        kubectl --context="$profile" apply -f - <<'VOLSYNC_EOF'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volsync-controller-manager
+  namespace: volsync-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volsync-manager-role
+rules:
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims", "persistentvolumes", "pods", "secrets", "services"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: volsync-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: volsync-manager-role
+subjects:
+- kind: ServiceAccount
+  name: volsync-controller-manager
+  namespace: volsync-system
+VOLSYNC_EOF
+        log_success "VolSync RBAC installed on $profile"
     done
 fi
 

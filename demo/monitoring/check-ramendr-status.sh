@@ -145,7 +145,7 @@ if [[ "$DRCLUSTERS" -gt 0 && "$DRPOLICIES" -gt 0 ]]; then
         echo "✅ Volume replication is configured!"
         echo ""
         echo "📝 Next steps:"
-        echo "  1. Check S3 bucket contents with: ./examples/s3-config/check-minio-backups.sh"
+        echo "  1. Check S3 bucket contents with: ../scripts/check-minio-backups.sh"
         echo "  2. Create test applications with PVCs to verify end-to-end replication"
         echo "  3. Monitor operator logs for backup activity"
     else
