@@ -38,10 +38,15 @@ check_kubectl
 install_storage_dependencies() {
     log_info "Installing storage replication dependencies..."
     
-    # Install VolumeReplication CRD
-    log_info "Installing VolumeReplication CRD..."
+    # Install VolumeReplication CRDs (including missing VolumeGroup CRDs)
+    log_info "Installing VolumeReplication CRDs..."
     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml || log_warning "VolumeReplication CRD may already exist"
     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml || log_warning "VolumeReplicationClass CRD may already exist"
+    
+    # Install missing VolumeGroup CRDs that operators expect
+    log_info "Installing VolumeGroup CRDs..."
+    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplications.yaml || log_warning "VolumeGroupReplication CRD may already exist"
+    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplicationclasses.yaml || log_warning "VolumeGroupReplicationClass CRD may already exist"
     
     # Install External Snapshotter (required by VolSync)
     log_info "Installing External Snapshotter..."
@@ -128,6 +133,30 @@ spec:
   scope: Cluster
   versions:
   - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+EOF
+    
+    # VolumeGroupSnapshotClass (missing CRD that operators expect)
+    kubectl apply -f - <<EOF || log_warning "VolumeGroupSnapshotClass CRD may already exist"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io
+spec:
+  group: groupsnapshot.storage.openshift.io
+  names:
+    kind: VolumeGroupSnapshotClass
+    listKind: VolumeGroupSnapshotClassList
+    plural: volumegroupsnapshotclasses
+    singular: volumegroupsnapshotclass
+  scope: Cluster
+  versions:
+  - name: v1beta1
     served: true
     storage: true
     schema:
@@ -320,13 +349,20 @@ show_next_steps() {
 main() {
     log_info "🚀 Starting automated RamenDR installation for minikube..."
     
-    # Determine installation type
-    echo "Select installation type:"
-    echo "  1) Hub only (for hub cluster)"
-    echo "  2) Cluster only (for managed cluster)"
-    echo "  3) All clusters (automated multi-cluster setup)"
-    echo ""
-    read -p "Enter choice (1-3): " choice
+    # Check for automated choice via environment variable or command line
+    local choice="${AUTO_INSTALL_CHOICE:-${1:-}}"
+    
+    # If no automated choice provided, ask user
+    if [ -z "$choice" ]; then
+        echo "Select installation type:"
+        echo "  1) Hub only (for hub cluster)"
+        echo "  2) Cluster only (for managed cluster)"
+        echo "  3) All clusters (automated multi-cluster setup)"
+        echo ""
+        read -p "Enter choice (1-3): " choice
+    else
+        log_info "Using automated choice: $choice"
+    fi
     
     case $choice in
         1)
@@ -342,7 +378,7 @@ main() {
             install_all_clusters
             ;;
         *)
-            log_error "Invalid choice"
+            log_error "Invalid choice: $choice"
             exit 1
             ;;
     esac
@@ -357,11 +393,28 @@ case "${1:-}" in
     --help|-h)
         echo "RamenDR Quick Install for minikube"
         echo ""
-        echo "Usage: $0 [options]"
+        echo "Usage: $0 [options] [choice]"
+        echo ""
+        echo "Arguments:"
+        echo "  choice    Installation choice (1=hub, 2=cluster, 3=all)"
+        echo ""
+        echo "Options:"
+        echo "  --help, -h    Show this help"
+        echo ""
+        echo "Environment variables:"
+        echo "  AUTO_INSTALL_CHOICE    Set installation choice (1-3)"
+        echo ""
+        echo "Examples:"
+        echo "  $0 3                   # Install all clusters automatically"
+        echo "  AUTO_INSTALL_CHOICE=3 $0   # Install all clusters via env var"
+        echo "  echo '3' | $0         # Install all clusters via pipe"
         echo ""
         echo "This script installs RamenDR operators on minikube clusters"
         echo "Prerequisites: minikube clusters created with ./scripts/setup-minikube.sh"
         exit 0
+        ;;
+    [1-3])
+        main "$1"
         ;;
     "")
         main
