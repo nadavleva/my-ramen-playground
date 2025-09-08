@@ -99,6 +99,51 @@ else
     log_warning "kind not available, skipping cluster cleanup"
 fi
 
+
+log_step "Cleaning minikube clusters..."
+log_step "Cleaning minikube clusters..."
+
+# Use sudo for pkill if needed
+log_info "Stopping minikube-related processes..."
+if ! pkill -f minikube 2>/dev/null; then
+    log_warning "Trying with sudo..."
+    sudo pkill -f minikube 2>/dev/null || true
+fi
+sleep 2
+
+# Get actual running profiles
+PROFILES=$(minikube profile list -o json | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name')
+
+for profile in $PROFILES; do
+    log_info "Cleaning profile: $profile"
+    
+    # Stop profile first
+    minikube stop -p "$profile" || true
+    sleep 2
+    
+    # Direct deletion without loops
+    log_info "Deleting profile: $profile"
+    minikube delete --purge -p "$profile" || {
+        log_warning "Standard delete failed, trying force delete..."
+        minikube delete --purge --force -p "$profile"
+    }
+done
+
+# Verify using JSON output
+remaining=$(minikube profile list -o json | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name')
+if [ -n "$remaining" ]; then
+    log_error "Failed to delete profiles:"
+    echo "$remaining" | sed 's/^/    /'
+    log_warning "Try manually: minikube delete --profile <profile-name>"
+else
+    log_success "All Minikube profiles deleted"
+fi
+
+# Clean up related Docker resources
+log_info "Cleaning up related Docker resources..."
+docker ps -a | grep "minikube-ramen" | awk '{print $1}' | xargs -r docker rm -f
+docker network ls | grep "minikube-ramen" | awk '{print $1}' | xargs -r docker network rm
+
 # 4. Clean up Docker images (optional)
 echo ""
 read -p "Remove RamenDR Docker images? (y/N): " -n 1 -r

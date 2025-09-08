@@ -81,21 +81,49 @@ echo $KUBECONFIG  # Should be empty
 
 ### **Option 2: Manual Step-by-Step Setup**
 ```bash
+# 0. Clean existing environment (if needed)
+./scripts/cleanup-all.sh
+# Or remove clusters directly:
+minikube delete -p ramen-hub
+minikube delete -p ramen-dr1
+minikube delete -p ramen-dr2
+
 # 1. Setup minikube clusters
 ./demo/scripts/minikube_setup.sh
 
 # 2. Install RamenDR operators
 echo "3" | ./demo/scripts/minikube_quick-install.sh
 
-# 3. Deploy S3 storage
+# 3. Setup OCM resources (CRITICAL)
+./demo/scripts/setup-ocm-resources.sh
+
+# 4. Verify OCM setup
+# Check that cluster-manager exists ONLY on hub
+kubectl --context=ramen-hub -n open-cluster-management get deployment
+# Check ManagedCluster status
+kubectl --context=ramen-hub get managedcluster
+
+# 5. Deploy S3 storage
 ./demo/scripts/deploy-ramendr-s3.sh
 
-# 4. Setup cross-cluster access
+# 6. Setup cross-cluster access
 ./scripts/setup-cross-cluster-s3.sh
 
-# 5. Run failover demo
+# 7. Verify S3 access
+# Test MinIO access from DR clusters
+HOST_IP=$(minikube -p ramen-hub ip)
+kubectl --context=ramen-dr1 run test-minio --image=minio/mc --rm -i --restart=Never -- \
+    /bin/sh -c "mc alias set myminio http://${HOST_IP}:30900 minioadmin minioadmin && mc ls myminio/ramen-metadata/"
+
+# 8. Run failover demo
 ./demo/scripts/minikube_demo-failover.sh
 ```
+
+**⚠️ Important Notes:**
+1. OCM setup (step 3) is **critical** - without it, clusters won't register properly
+2. Verify that `cluster-manager` runs **only on the hub cluster**
+3. Check ManagedCluster status shows `Joined` and `Available` before proceeding
+4. Ensure S3 endpoint uses the correct Minikube IP address
 
 ## 🔧 **minikube Configuration**
 
