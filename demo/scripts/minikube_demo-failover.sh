@@ -6,7 +6,48 @@
 # demo-failover-minikube.sh - RamenDR disaster recovery failover demo for minikube
 # This script demonstrates switching between primary and secondary VRG states using minikube
 
-set -e
+set -euo pipefail
+
+set -euo pipefail
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/utils.sh"
+
+# Minikube profiles
+HUB_PROFILE="ramen-hub"
+DR1_PROFILE="ramen-dr1"
+DR2_PROFILE="ramen-dr2"
+
+# Validate and fix minikube profiles
+validate_profiles() {
+    # echo  "KUBECONFIG: ${KUBECONFIG}"
+    # Minikube profiles
+    HUB_PROFILE="ramen-hub"
+    DR1_PROFILE="ramen-dr1"
+    DR2_PROFILE="ramen-dr2"
+    echo  "CURRENT_CONTEXT: $(kubectl config current-context)"
+    log_info "Validating minikube profiles..."
+    for profile in "${HUB_PROFILE}" "${DR1_PROFILE}" "${DR2_PROFILE}"; do
+        if ! minikube profile list | grep -q "${profile}"; then
+            log_error "Profile ${profile} not found in minikube!"
+            exit 1
+        fi
+        
+        # Set profile and update context
+        minikube profile "${profile}"
+        minikube update-context
+        
+        # Verify context exists
+        if ! kubectl config get-contexts | grep -q "^.*${profile}.*$"; then
+            log_error "Context ${profile} not found in kubeconfig!"
+            exit 1
+        fi
+    done
+    log_success "All minikube profiles validated"
+}
+
+# Run validation before creating resources
+validate_profiles
 
 # Colors for output
 RED='\033[0;31m'
@@ -34,7 +75,7 @@ DR2_PROFILE="ramen-dr2"
 # Check minikube profile exists
 check_profile_exists() {
     local profile="$1"
-    minikube profile list 2>/dev/null | grep -q "^$profile"
+    minikube profile list 2>/dev/null | grep -q "$profile"
 }
 
 echo "=============================================="
@@ -150,6 +191,25 @@ EOF
 # Wait for pod to be ready
 log_info "Waiting for application to be ready..."
 kubectl wait --for=condition=available --timeout=60s deployment/nginx-failover-demo -n nginx-failover-demo >/dev/null 2>&1
+
+# Add robust pod readiness check
+log_info "Waiting for pod to be ready..."
+for i in {1..30}; do
+    POD_NAME=$(kubectl get pods -n nginx-failover-demo -l app=nginx-failover-demo -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ ! -z "$POD_NAME" ]; then
+        if kubectl wait --for=condition=ready pod/$POD_NAME -n nginx-failover-demo --timeout=10s >/dev/null 2>&1; then
+            break
+        fi
+    fi
+    echo -n "."
+    sleep 2
+done
+echo ""
+
+if [ -z "$POD_NAME" ]; then
+    log_error "Pod not found after waiting. Check deployment status."
+    exit 1
+fi
 
 # Write test data
 log_info "Writing test data to persistent volume..."

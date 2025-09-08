@@ -172,6 +172,245 @@ EOF
     log_success "All required CRDs and resource classes installed successfully"
 }
 
+# Install missing OCM CRDs required for hub operator
+install_ocm_crds() {
+    log_info "Installing missing OCM CRDs for hub operator..."
+    
+    # Install ManagedCluster CRD
+    log_info "Installing ManagedCluster CRD..."
+    kubectl apply -f - << 'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: managedclusters.cluster.open-cluster-management.io
+spec:
+  group: cluster.open-cluster-management.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              hubAcceptsClient:
+                type: boolean
+              leaseDurationSeconds:
+                type: integer
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+  scope: Cluster
+  names:
+    plural: managedclusters
+    singular: managedcluster
+    kind: ManagedCluster
+EOF
+    
+    # Install PlacementRule CRD
+    log_info "Installing PlacementRule CRD..."
+    kubectl apply -f - << 'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: placementrules.apps.open-cluster-management.io
+spec:
+  group: apps.open-cluster-management.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              clusterSelector:
+                type: object
+          status:
+            type: object
+            properties:
+              decisions:
+                type: array
+                items:
+                  type: object
+  scope: Namespaced
+  names:
+    plural: placementrules
+    singular: placementrule
+    kind: PlacementRule
+EOF
+    
+    # Install Placement CRD
+    log_info "Installing Placement CRD..."
+    kubectl apply --context=ramen-hub -f - << 'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: placements.cluster.open-cluster-management.io
+spec:
+  group: cluster.open-cluster-management.io
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              clusterSets:
+                type: array
+                items:
+                  type: string
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+  scope: Namespaced
+  names:
+    plural: placements
+    singular: placement
+    kind: Placement
+EOF
+    
+    # Install ManagedClusterView CRD
+    log_info "Installing ManagedClusterView CRD..."
+    kubectl apply -f - << 'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: managedclusterviews.view.open-cluster-management.io
+spec:
+  group: view.open-cluster-management.io
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              scope:
+                type: object
+              viewName:
+                type: string
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+  scope: Namespaced
+  names:
+    plural: managedclusterviews
+    singular: managedclusterview
+    kind: ManagedClusterView
+EOF
+    
+    # Install ManifestWork CRD
+    log_info "Installing ManifestWork CRD..."
+    kubectl apply -f - << 'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: manifestworks.work.open-cluster-management.io
+spec:
+  group: work.open-cluster-management.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              workload:
+                type: object
+              deleteOption:
+                type: object
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+  scope: Namespaced
+  names:
+    plural: manifestworks
+    singular: manifestwork
+    kind: ManifestWork
+EOF
+    
+    log_success "OCM CRDs installed successfully"
+}
+
 # Install RamenDR Hub Operator
 install_hub_operator() {
     log_step "Installing Ramen Hub Operator..."
@@ -186,12 +425,21 @@ install_hub_operator() {
     log_info "Installing RamenDR Hub CRDs..."
     make install-hub
     
+    # Install OCM CRDs required for hub operator
+    install_ocm_crds
+    
     # Build and load operator image
     log_info "Building RamenDR operator image..."
-    make podman-build || {
+    if make podman-build; then
+        log_info "Podman build succeeded, copying image to docker registry..."
+        # Copy podman image to docker so minikube can access it
+        podman save quay.io/ramendr/ramen-operator:latest | docker load || {
+            log_warning "Failed to copy podman image to docker, trying direct minikube load..."
+        }
+    else
         log_warning "podman-build failed, trying docker-build..."
         make docker-build
-    }
+    fi
     
     # Load image into minikube
     log_info "Loading operator image into minikube..."
@@ -233,9 +481,19 @@ install_cluster_operator() {
         # Get profile name from context
         local profile=${context}
         
-        # Load operator image
+        # Ensure image is available in docker registry and load into minikube
         log_info "Loading operator image into minikube profile: $profile..."
-        minikube image load quay.io/ramendr/ramen-operator:latest --profile="$profile"
+        
+        # Copy from podman to docker if needed (in case this step runs independently)
+        if podman images | grep -q "ramen-operator.*latest"; then
+            log_info "Copying podman image to docker registry for $profile..."
+            podman save quay.io/ramendr/ramen-operator:latest | docker load 2>/dev/null || true
+        fi
+        
+        # Load into minikube with correct environment
+        env KUBECONFIG="" minikube -p "$profile" image load quay.io/ramendr/ramen-operator:latest || {
+            log_warning "Failed to load image into $profile, deployment may fail"
+        }
         
         # Install storage dependencies and missing resources
         install_storage_dependencies

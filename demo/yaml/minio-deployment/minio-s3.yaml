@@ -2,17 +2,19 @@
 # SPDX-FileCopyrightText: The RamenDR authors
 # SPDX-License-Identifier: Apache-2.0
 
-# MinIO S3 Storage for RamenDR Metadata
-# S3-compatible storage for RamenDR metadata
+# MinIO S3 Storage for RamenDR Metadata (Cross-Cluster Compatible)
+# S3-compatible storage for RamenDR metadata with host network + NodePort
+# for cross-cluster access in minikube environments
 #
 # Usage:
 #   kubectl apply -f minio-s3.yaml
-#   kubectl port-forward -n minio-system service/minio 9000:9000 (for access)
-#
-# Access:
-#   Console: http://localhost:9001 (admin UI)
-#   API: http://localhost:9000 (S3 API)
+#   
+# Access (cross-cluster compatible):
+#   Console: http://<hub-cluster-ip>:30901 (admin UI)
+#   API: http://<hub-cluster-ip>:30900 (S3 API)
 #   Credentials: minioadmin / minioadmin
+#   
+# Note: Uses hostNetwork=true to break out of minikube isolation
 
 apiVersion: v1
 kind: Namespace
@@ -42,6 +44,9 @@ spec:
       labels:
         app: minio
     spec:
+      # Use host network to break out of minikube isolation for cross-cluster access
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
       - name: minio
         image: quay.io/minio/minio:latest
@@ -96,14 +101,16 @@ metadata:
     app.kubernetes.io/name: minio
     app.kubernetes.io/component: storage
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 9000
       targetPort: 9000
+      nodePort: 30900
       protocol: TCP
       name: api
     - port: 9001
       targetPort: 9001
+      nodePort: 30901
       protocol: TCP
       name: console
   selector:

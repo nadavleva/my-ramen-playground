@@ -20,10 +20,25 @@ sudo usermod -aG docker $USER
 ```
 
 ### **System Requirements:**
-- **Memory**: At least 12GB RAM (4GB per cluster × 3 clusters)
-- **CPU**: At least 6 cores (2 cores per cluster × 3 clusters)  
+- **Memory**: At least 9GB RAM (3GB per cluster × 3 clusters) 
+  - ⚠️ **Minikube minimum**: 1800MB per cluster (enforced)
+- **CPU**: At least 6 cores (2 cores per cluster × 3 clusters)
+  - ⚠️ **Minikube minimum**: 2 cores per cluster (enforced)
 - **Disk**: 20GB free space
 - **OS**: Linux with Docker support
+
+**🚨 CRITICAL**: These are hard minimums enforced by minikube. Lower values will fail with resource errors.
+
+### **🚨 CRITICAL: Environment Setup**
+```bash
+# MUST unset KUBECONFIG before starting minikube demo
+unset KUBECONFIG
+
+# Verify it's unset
+echo $KUBECONFIG  # Should be empty
+```
+
+**⚠️ Why this matters**: If `KUBECONFIG` points to other Kubernetes installations (like k3s), minikube will fail to start with permission errors.
 
 ## 🚀 **Quick Start**
 
@@ -36,19 +51,19 @@ sudo usermod -aG docker $USER
 ### **Option 2: Manual Step-by-Step Setup**
 ```bash
 # 1. Setup minikube clusters
-./scripts/setup-minikube.sh
+./demo/scripts/minikube_setup.sh
 
 # 2. Install RamenDR operators
-echo "3" | ./scripts/quick-install.sh
+echo "3" | ./demo/scripts/minikube_quick-install.sh
 
 # 3. Deploy S3 storage
-./examples/deploy-ramendr-s3.sh
+./demo/scripts/deploy-ramendr-s3.sh
 
 # 4. Setup cross-cluster access
 ./scripts/setup-cross-cluster-s3.sh
 
 # 5. Run failover demo
-./examples/demo-failover-minikube.sh
+./demo/scripts/minikube_demo-failover.sh
 ```
 
 ## 🔧 **minikube Configuration**

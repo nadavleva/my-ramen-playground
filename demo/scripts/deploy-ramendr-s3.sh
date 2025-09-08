@@ -1,17 +1,5 @@
 #!/bin/bash
 # RamenDR S3 Configuration Deployment Script
-# 
-# This script deploys MinIO S3 storage and configures RamenDR
-# for disaster recovery between Kubernetes clusters.
-#
-# Usage:
-#   ./deploy-ramendr-s3.sh [--dry-run]
-#
-# Prerequisites:
-#   - 3 Kubernetes clusters with contexts: hub-cluster, dr1-cluster, dr2-cluster
-#   - RamenDR operators installed on all clusters
-#   - kubectl configured with appropriate contexts
-
 set -e
 
 # Colors for output
@@ -26,22 +14,9 @@ log_success() { echo -e "${GREEN}✅ $1${NC}"; }
 log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_error() { echo -e "${RED}❌ $1${NC}"; }
 
-# Load cluster configuration
+# Script setup
 SCRIPT_DIR="$(dirname "$0")"
-if [[ -f "$SCRIPT_DIR/cluster-config.sh" ]]; then
-    source "$SCRIPT_DIR/cluster-config.sh" 2>/dev/null || {
-        # Fallback to kind contexts with environment variable override
-        HUB_CONTEXT="${HUB_CONTEXT:-kind-ramen-hub}"
-        DR1_CONTEXT="${DR1_CONTEXT:-kind-ramen-dr1}"
-        DR2_CONTEXT="${DR2_CONTEXT:-kind-ramen-dr2}"
-    }
-else
-    # Fallback to kind contexts with environment variable override
-    HUB_CONTEXT="${HUB_CONTEXT:-kind-ramen-hub}"
-    DR1_CONTEXT="${DR1_CONTEXT:-kind-ramen-dr1}"
-    DR2_CONTEXT="${DR2_CONTEXT:-kind-ramen-dr2}"
-fi
-EXAMPLES_DIR="$(dirname "$0")"
+EXAMPLES_DIR="$(dirname "$(dirname "$0")")/yaml"
 DRY_RUN=false
 
 # Parse arguments
@@ -80,21 +55,44 @@ check_context() {
     fi
 }
 
+# Function to setup minikube contexts and S3 endpoint
+setup_minikube_environment() {
+    if command -v minikube >/dev/null 2>&1; then
+        log_info "Detected minikube environment"
+        # Set minikube contexts
+        HUB_CONTEXT="ramen-hub"
+        DR1_CONTEXT="ramen-dr1"
+        DR2_CONTEXT="ramen-dr2"
+        
+        # Get hub IP for S3 endpoint
+        HUB_IP=$(minikube ip -p ramen-hub)
+        if [[ -n "$HUB_IP" ]]; then
+            S3_ENDPOINT="http://$HUB_IP:30900"
+            log_info "Detected hub cluster IP: $HUB_IP"
+            log_info "Using S3 endpoint: $S3_ENDPOINT"
+            return 0
+        fi
+    fi
+    log_error "Minikube environment not detected or hub IP not available"
+    return 1
+}
+
 main() {
     log_info "🚀 Starting RamenDR S3 configuration deployment"
     
+    # Setup minikube environment
+    setup_minikube_environment || exit 1
+    
     # Check prerequisites
     log_info "📋 Checking prerequisites..."
-    
     check_context "$HUB_CONTEXT"
-    check_context "$DR1_CONTEXT"  
+    check_context "$DR1_CONTEXT"
     check_context "$DR2_CONTEXT"
     
     if [[ ! -d "$EXAMPLES_DIR" ]]; then
         log_error "Examples directory not found: $EXAMPLES_DIR"
         exit 1
     fi
-    
     log_success "Prerequisites satisfied"
     
     # Step 1: Deploy MinIO S3 Storage
@@ -110,9 +108,23 @@ main() {
         exit 1
     fi
     
-    # Step 2: Create S3 Secret
-    log_info "🔐 Step 2: Creating S3 credentials secret"
+    # Step 2: Configure S3 endpoint and profiles
+    log_info "🔧 Step 2: Configuring S3 endpoint for cross-cluster access"
     
+    # Update S3 profiles with dynamic endpoint
+    if [[ -f "$EXAMPLES_DIR/s3-config/s3-profiles.yaml" ]]; then
+        sed "s|\"s3Endpoint\": \"http://.*:30900\"|\"s3Endpoint\": \"$S3_ENDPOINT\"|g" \
+            "$EXAMPLES_DIR/s3-config/s3-profiles.yaml" > /tmp/s3-profiles-updated.yaml
+        run_kubectl apply -f /tmp/s3-profiles-updated.yaml
+        rm -f /tmp/s3-profiles-updated.yaml
+        log_success "S3 profiles configured with dynamic endpoint"
+    else
+        log_error "S3 profiles file not found!"
+        exit 1
+    fi
+    
+    # Step 3: Create S3 Secret
+    log_info "🔐 Step 3: Creating S3 credentials secret"
     if [[ -f "$EXAMPLES_DIR/s3-config/s3-secret.yaml" ]]; then
         run_kubectl apply -f "$EXAMPLES_DIR/s3-config/s3-secret.yaml"
         log_success "S3 secret created successfully"
@@ -121,9 +133,8 @@ main() {
         exit 1
     fi
     
-    # Step 3: Create DRCluster resources
-    log_info "🌐 Step 3: Creating DRCluster resources"
-    
+    # Step 4: Create DRCluster resources
+    log_info "🌐 Step 4: Creating DRCluster resources"
     if [[ -f "$EXAMPLES_DIR/dr-policy/drclusters.yaml" ]]; then
         run_kubectl apply -f "$EXAMPLES_DIR/dr-policy/drclusters.yaml"
         log_success "DRCluster resources created successfully"
@@ -132,9 +143,8 @@ main() {
         exit 1
     fi
     
-    # Step 4: Create DRPolicy
-    log_info "📋 Step 4: Creating DRPolicy for replication"
-    
+    # Step 5: Create DRPolicy
+    log_info "📋 Step 5: Creating DRPolicy for replication"
     if [[ -f "$EXAMPLES_DIR/dr-policy/drpolicy.yaml" ]]; then
         run_kubectl apply -f "$EXAMPLES_DIR/dr-policy/drpolicy.yaml"
         log_success "DRPolicy created successfully"
@@ -143,23 +153,20 @@ main() {
         exit 1
     fi
     
-    # Step 5: Create S3 bucket for RamenDR metadata
-    log_info "🪣 Step 5: Creating ramen-metadata bucket"
-    
+    # Step 6: Create S3 bucket
+    log_info "🪣 Step 6: Creating ramen-metadata bucket"
     if [[ "$DRY_RUN" == "false" ]]; then
-        # Run the bucket creation script
-        if [[ -f "$EXAMPLES_DIR/s3-config/create-minio-bucket.sh" ]]; then
-            bash "$EXAMPLES_DIR/s3-config/create-minio-bucket.sh"
+        if [[ -f "$SCRIPT_DIR/create-minio-bucket.sh" ]]; then
+            bash "$SCRIPT_DIR/create-minio-bucket.sh"
             log_success "S3 bucket created successfully"
         else
-            log_warning "Bucket creation script not found, bucket will be created automatically by RamenDR"
+            log_warning "Bucket creation script not found, bucket will be created automatically"
         fi
     fi
     
-    # Step 6: Verification
+    # Verify deployment
     if [[ "$DRY_RUN" == "false" ]]; then
-        log_info "🔍 Step 6: Verifying deployment"
-        
+        log_info "🔍 Verifying deployment"
         echo ""
         log_info "MinIO Status:"
         kubectl --context="$HUB_CONTEXT" get pods -n minio-system
@@ -173,7 +180,7 @@ main() {
         kubectl --context="$HUB_CONTEXT" get secret ramen-s3-secret -n ramen-system
     fi
     
-    # Success message with next steps
+    # Success message
     echo ""
     log_success "🎉 RamenDR S3 configuration deployment completed!"
     
@@ -183,10 +190,8 @@ main() {
         echo "   1. Access MinIO console: kubectl port-forward -n minio-system service/minio 9001:9001"
         echo "   2. Open browser to: http://localhost:9001"
         echo "   3. Login with: minioadmin / minioadmin"
-        echo "   4. Look for 'ramen-metadata' bucket in the console"
-        echo "   5. Run: ./examples/ramendr-demo.sh to test applications with PVCs"
+        echo "   4. Verify 'ramen-metadata' bucket exists"
         echo ""
-        log_info "📚 Documentation: See examples/README.md for detailed usage"
     fi
 }
 

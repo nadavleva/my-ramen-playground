@@ -2,22 +2,22 @@
 # SPDX-FileCopyrightText: The RamenDR authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Minimal Placement for DRPC in kind environment
-# This creates a basic placement that DRPC can reference
-
-apiVersion: cluster.open-cluster-management.io/v1beta1
+apiVersion: cluster.open-cluster-management.io/v1alpha1
 kind: Placement
 metadata:
   name: nginx-test-placement
-  namespace: nginx-test
+  namespace: nginx-demo  # Changed to match demo namespace
   labels:
-    app: nginx-test
+    app: nginx-demo
 spec:
-  numberOfClusters: 1
-  # In a real OCM environment, this would select managed clusters
-  # For our kind demo, this is just a placeholder
-  tolerations:
-  - key: cluster.open-cluster-management.io/unreachable
-    operator: Exists
-  - key: cluster.open-cluster-management.io/unavailable
-    operator: Exists
+  clusterSets:
+    - global     # Default clusterset
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: vendor
+              operator: In
+              values:
+                - OpenShift
+                - "true"

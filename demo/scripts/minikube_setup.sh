@@ -91,7 +91,106 @@ check_prerequisites() {
         exit 1
     fi
     
-    log_success "All prerequisites satisfied!"
+    # Enhanced system checks based on troubleshooting experience
+    log_step "Checking system environment for known issues..."
+    
+    # Check #1: KUBECONFIG conflicts (Critical Issue)
+    if [[ -n "${KUBECONFIG:-}" ]]; then
+        log_warning "KUBECONFIG environment variable detected: $KUBECONFIG"
+        log_warning "This can cause minikube start failures (permission denied)"
+        log_info "Automatically unsetting KUBECONFIG for this session..."
+        unset KUBECONFIG
+        export KUBECONFIG=""
+        log_success "KUBECONFIG cleared for minikube compatibility"
+    else
+        log_success "KUBECONFIG: Clean (no conflicts)"
+    fi
+    
+    # Check #2: inotify limits (Critical for ramen-dr2)
+    local current_watches=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+    local current_instances=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo "0")
+    local required_watches=1048576
+    local required_instances=8192
+    
+    if [[ $current_watches -lt $required_watches ]] || [[ $current_instances -lt $required_instances ]]; then
+        log_warning "inotify limits too low (can cause kubelet failures)"
+        log_info "Current: watches=$current_watches, instances=$current_instances"
+        log_info "Required: watches=$required_watches, instances=$required_instances"
+        log_info "Attempting to fix inotify limits..."
+        
+        if sudo sysctl -w fs.inotify.max_user_watches=$required_watches && \
+           sudo sysctl -w fs.inotify.max_user_instances=$required_instances; then
+            
+            # Make persistent
+            sudo tee /etc/sysctl.d/99-kubernetes-inotify.conf >/dev/null << EOF
+# Increase inotify limits for Kubernetes/minikube
+fs.inotify.max_user_watches = $required_watches
+fs.inotify.max_user_instances = $required_instances
+EOF
+            log_success "inotify limits fixed and made persistent"
+        else
+            log_error "Failed to set inotify limits (may cause cluster startup issues)"
+            log_details "Manual fix: sudo sysctl -w fs.inotify.max_user_watches=$required_watches"
+        fi
+    else
+        log_success "inotify limits: OK (watches=$current_watches, instances=$current_instances)"
+    fi
+    
+    # Check #3: Resource requirements
+    log_step "Validating system resources..."
+    
+    # Check available memory
+    local available_mem_gb=$(free -g | awk 'NR==2{printf "%.0f", $7}')  # Available memory
+    local required_mem_gb=9  # 3GB per cluster × 3 clusters
+    
+    if [[ $available_mem_gb -lt $required_mem_gb ]]; then
+        log_error "Insufficient memory: ${available_mem_gb}GB available, ${required_mem_gb}GB required"
+        log_details "Each cluster needs 3GB, total 9GB for 3 clusters"
+        log_details "Consider: reducing cluster memory or increasing system RAM"
+        ((missing++))
+    else
+        log_success "Memory: ${available_mem_gb}GB available (≥${required_mem_gb}GB required)"
+    fi
+    
+    # Check CPU cores
+    local cpu_cores=$(nproc)
+    local required_cores=6  # 2 cores per cluster × 3 clusters
+    
+    if [[ $cpu_cores -lt $required_cores ]]; then
+        log_error "Insufficient CPUs: ${cpu_cores} cores available, ${required_cores} cores required"
+        log_details "Each cluster needs 2 cores, total 6 cores for 3 clusters"
+        ((missing++))
+    else
+        log_success "CPU cores: ${cpu_cores} available (≥${required_cores} required)"
+    fi
+    
+    # Check #4: Docker system health
+    if [ "$MINIKUBE_DRIVER" = "docker" ]; then
+        log_step "Docker system health check..."
+        
+        # Check Docker storage space
+        local docker_space=$(df -h /var/lib/docker 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')
+        if [[ -n "$docker_space" ]] && [[ $docker_space -lt 20 ]]; then
+            log_warning "Low Docker storage space: ${docker_space}GB"
+            log_details "Consider: docker system prune -af"
+        fi
+        
+        # Check for containers that might interfere
+        local existing_containers=$(docker ps -q | wc -l)
+        if [[ $existing_containers -gt 0 ]]; then
+            log_info "Existing Docker containers: $existing_containers (may use resources)"
+        fi
+        
+        log_success "Docker system health: OK"
+    fi
+    
+    if [ $missing -gt 0 ]; then
+        echo ""
+        log_error "System requirements not met! Fix the issues above before proceeding."
+        exit 1
+    fi
+    
+    log_success "All prerequisites and system checks passed!"
     echo ""
 }
 
@@ -121,7 +220,7 @@ create_clusters() {
     log_info "🏢 Creating hub cluster ($HUB_PROFILE)..."
     log_details "This cluster will run RamenDR hub operator and management components"
     
-    minikube start \
+    env KUBECONFIG="" minikube start \
         --profile="$HUB_PROFILE" \
         --driver="$MINIKUBE_DRIVER" \
         --memory="$MEMORY" \
@@ -137,7 +236,7 @@ create_clusters() {
     log_info "🌊 Creating DR cluster 1 ($DR1_PROFILE)..."
     log_details "This cluster will run RamenDR DR cluster operator and workloads"
     
-    minikube start \
+    env KUBECONFIG="" minikube start \
         --profile="$DR1_PROFILE" \
         --driver="$MINIKUBE_DRIVER" \
         --memory="$MEMORY" \
@@ -156,7 +255,7 @@ create_clusters() {
         log_info "🌊 Creating DR cluster 2 ($DR2_PROFILE)..."
         log_details "This cluster provides additional DR target for complex scenarios"
         
-        if minikube start \
+        if env KUBECONFIG="" minikube start \
             --profile="$DR2_PROFILE" \
             --driver="$MINIKUBE_DRIVER" \
             --memory="$MEMORY" \
@@ -178,11 +277,11 @@ setup_networking() {
     echo ""
     
     for profile in "$HUB_PROFILE" "$DR1_PROFILE"; do
-        if minikube profile list 2>/dev/null | grep -q "^$profile"; then
+        if env KUBECONFIG="" minikube profile list 2>/dev/null | grep -q "^$profile"; then
             log_info "🌐 Setting up networking for $profile..."
             
             # Switch to profile and configure
-            minikube profile "$profile"
+            env KUBECONFIG="" minikube profile "$profile"
             
             # Wait for API server to be ready
             log_details "Waiting for API server to be ready..."
@@ -197,9 +296,9 @@ setup_networking() {
     done
     
     # Check DR2 if it exists
-    if minikube profile list 2>/dev/null | grep -q "^$DR2_PROFILE"; then
+    if env KUBECONFIG="" minikube profile list 2>/dev/null | grep -q "^$DR2_PROFILE"; then
         log_info "🌐 Setting up networking for $DR2_PROFILE..."
-        minikube profile "$DR2_PROFILE"
+        env KUBECONFIG="" minikube profile "$DR2_PROFILE"
         kubectl wait --for=condition=Ready nodes --all --timeout=120s >/dev/null 2>&1
         kubectl run test-pod --image=busybox --restart=Never --rm -i -- echo "Network test successful" >/dev/null 2>&1 || log_warning "Network test failed for $DR2_PROFILE"
         log_success "Networking configured for $DR2_PROFILE"
@@ -214,13 +313,13 @@ verify_clusters() {
     echo ""
     
     local profiles=("$HUB_PROFILE" "$DR1_PROFILE")
-    if minikube profile list 2>/dev/null | grep -q "^$DR2_PROFILE"; then
+    if env KUBECONFIG="" minikube profile list 2>/dev/null | grep -q "^$DR2_PROFILE"; then
         profiles+=("$DR2_PROFILE")
     fi
     
     for profile in "${profiles[@]}"; do
         log_info "🔍 Checking cluster: $profile"
-        minikube profile "$profile"
+        env KUBECONFIG="" minikube profile "$profile"
         
         # Check nodes
         local node_count=$(kubectl get nodes --no-headers | wc -l)

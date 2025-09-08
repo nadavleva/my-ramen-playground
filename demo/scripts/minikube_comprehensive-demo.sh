@@ -234,6 +234,10 @@ fi
 if [ -z "$START_FROM_PHASE" ] || [ "$START_FROM_PHASE" -le 2 ]; then
     log_step "PHASE 2: Installing ALL required CRDs"
     
+    # First run setup-ocm-resources.sh which handles OCM CRDs correctly
+    log_info "Running OCM resources setup..."
+    "${SCRIPT_DIR}/setup-ocm-resources.sh"
+    
     # Install on all clusters
     for profile in "$HUB_PROFILE" "$DR1_PROFILE" "$DR2_PROFILE"; do
         log_info "Installing CRDs on $profile..."
@@ -243,64 +247,21 @@ if [ -z "$START_FROM_PHASE" ] || [ "$START_FROM_PHASE" -le 2 ]; then
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.2/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.2/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
         
-        # Volume Replication CRDs (including missing VolumeGroup CRDs)
+        # Volume Replication CRDs
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml
         kubectl --context="$profile" apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml
-        # Use local VolumeGroup CRDs (404 URLs fixed)
-        kubectl --context="$profile" apply -f ../../hack/test/replication.storage.openshift.io_volumegroupreplications.yaml
-        kubectl --context="$profile" apply -f ../../hack/test/replication.storage.openshift.io_volumegroupreplicationclasses.yaml
         
-        # Missing stub CRDs that operators expect
-        kubectl --context="$profile" apply -f - <<EOF
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io
-spec:
-  group: groupsnapshot.storage.openshift.io
-  names:
-    kind: VolumeGroupSnapshotClass
-    listKind: VolumeGroupSnapshotClassList
-    plural: volumegroupsnapshotclasses
-    singular: volumegroupsnapshotclass
-  scope: Cluster
-  versions:
-  - name: v1beta1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: networkfenceclasses.csiaddons.openshift.io
-spec:
-  group: csiaddons.openshift.io
-  names:
-    kind: NetworkFenceClass
-    listKind: NetworkFenceClassList
-    plural: networkfenceclasses
-    singular: networkfenceclass
-  scope: Cluster
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-EOF
-        
-        log_success "CRDs installed on $profile"
+        # Create stub CRDs that operators expect
+        kubectl --context="$profile" apply -f "${SCRIPT_DIR}/../yaml/crds/volumegroupsnapshotclass-crd.yaml"
+        kubectl --context="$profile" apply -f "${SCRIPT_DIR}/../yaml/crds/networkfenceclass-crd.yaml"
     done
     
-    # Install RamenDR CRDs using Makefile
+    # Install RamenDR CRDs
     log_info "Installing RamenDR CRDs..."
-    make install KUSTOMIZE=../../bin/kustomize
+    make -C ../.. install KUSTOMIZE=bin/kustomize
+    
+    PHASE_2_CRDS="completed"
+    save_state 2 "completed"
 fi
 
 # PHASE 3: VolSync Installation

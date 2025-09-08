@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: volsync-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volsync-controller-manager
+  namespace: volsync-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volsync-manager-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "services/finalizers", "persistentvolumeclaims", "persistentvolumes", "configmaps"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshots", "volumesnapshotcontents"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["replication.storage.openshift.io"]
+  resources: ["volumereplications", "volumereplicationclasses"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: volsync-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: volsync-manager-role
+subjects:
+- kind: ServiceAccount
+  name: volsync-controller-manager
+  namespace: volsync-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: volsync-operator
+  namespace: volsync-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: volsync
+  template:
+    metadata:
+      labels:
+        name: volsync
+    spec:
+      serviceAccountName: volsync-controller-manager
+      containers:
+      - name: manager
+        image: quay.io/volsync/volsync-operator:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 100m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi

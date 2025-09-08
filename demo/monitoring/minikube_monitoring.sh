@@ -19,6 +19,9 @@ NC='\033[0m' # No Color
 # Enhanced monitoring function
 comprehensive_monitoring() {
     clear
+    echo  "KUBECONFIG: $KUBECONFIG"
+    echo  "CURRENT_CONTEXT: $(kubectl config current-context)"
+
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}                    🔍 ENHANCED RAMENDR MINIKUBE MONITORING                    ${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -35,7 +38,19 @@ comprehensive_monitoring() {
     
     # KUBERNETES CONTEXTS  
     echo -e "${BLUE}=== KUBERNETES CONTEXTS ===${NC}"
-    kubectl config get-contexts | grep ramen || echo "No ramen contexts found"
+    # Update contexts first to ensure they're available
+    for profile in ramen-hub ramen-dr1 ramen-dr2; do
+        env KUBECONFIG="" minikube update-context --profile=$profile >/dev/null 2>&1 || true
+    done
+    
+    # Show available ramen contexts
+    local contexts=$(kubectl config get-contexts -o name | grep "^ramen-" 2>/dev/null || true)
+    if [ -n "$contexts" ]; then
+        kubectl config get-contexts | head -n 1  # Header
+        kubectl config get-contexts | grep ramen
+    else
+        echo "No ramen contexts found"
+    fi
     echo ""
 
     # RAMENDR OPERATORS
@@ -44,6 +59,8 @@ comprehensive_monitoring() {
     kubectl --context=ramen-hub get pods -n ramen-system -l app=ramen-hub 2>/dev/null || echo "  Hub cluster not accessible"
     echo "DR Cluster Operator (ramen-dr1):" 
     kubectl --context=ramen-dr1 get pods -n ramen-system -l app=ramen-dr-cluster 2>/dev/null || echo "  DR1 cluster not accessible"
+    echo "DR Cluster Operator (ramen-dr2):" 
+    kubectl --context=ramen-dr2 get pods -n ramen-system -l app=ramen-dr-cluster 2>/dev/null || echo "  DR1 cluster not accessible"
     echo ""
 
     # ORCHESTRATION LAYER (Hub)
@@ -87,10 +104,18 @@ comprehensive_monitoring() {
     kubectl --context=ramen-hub get pods,svc -n minio-system 2>/dev/null | grep -v "No resources" || echo "  MinIO not found in cluster"
     echo ""
     echo "📦 S3 Bucket Contents:"
-    # Try both mc aliases
-    ./mc ls minio-local/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
-    ./mc ls minio-host/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
-    echo "  No backup data found (or mc not configured)"
+    # Try both mc aliases (check multiple possible locations)
+    if command -v mc >/dev/null 2>&1; then
+        mc ls minio-local/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
+        mc ls minio-host/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
+        echo "  No backup data found"
+    elif [ -f "./mc" ]; then
+        ./mc ls minio-local/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
+        ./mc ls minio-host/ramen-metadata/ --recursive 2>/dev/null | head -5 || \
+        echo "  No backup data found"
+    else
+        echo "  MinIO client (mc) not found"
+    fi
     echo ""
 
     # HELPFUL COMMANDS

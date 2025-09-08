@@ -4,6 +4,64 @@
 
 This guide documents the major issues we encountered and solved during RamenDR minikube demo development.
 
+## 🔧 **Environment Setup Issues**
+
+### **Problem: KUBECONFIG Conflicts**
+
+**Symptoms:**
+- Minikube fails to start with "permission denied" errors
+- Error: "failed to start node: Failed kubeconfig update"
+- Error: "mkdir /etc/rancher: permission denied"
+
+**Root Cause:** 
+Existing `KUBECONFIG` environment variable pointing to other K8s installations (k3s, etc.) conflicts with minikube.
+
+### **✅ Solution: Clean Environment Setup**
+
+```bash
+# CRITICAL: Always unset KUBECONFIG before minikube demo
+unset KUBECONFIG
+
+# Verify it's unset
+echo $KUBECONFIG  # Should be empty
+
+# Then proceed with minikube commands
+minikube start -p ramen-hub --driver=docker
+```
+
+**⚠️ Add to your demo checklist**: Always run `unset KUBECONFIG` first!
+
+### **Problem: Hub Operator CrashLoopBackOff**
+
+**Symptoms:**
+- Hub operator pod shows `CrashLoopBackOff` status
+- Logs show errors like `"timed out waiting for cache to be synced for Kind *v1.ManagedCluster"`
+- Missing OCM (Open Cluster Management) CRDs
+
+**Root Cause:** 
+The RamenDR hub operator expects certain OCM CRDs to be present, even in lightweight Kubernetes environments like minikube.
+
+### **✅ Solution: Automatic OCM CRD Installation**
+
+✅ **Fixed in v2.0+**: The installation script now automatically installs the required OCM CRDs:
+- `ManagedCluster`
+- `PlacementRule` 
+- `Placement`
+- `ManagedClusterView`
+- `ManifestWork`
+
+**Manual Fix (if needed):**
+```bash
+# Switch to hub cluster
+kubectl config use-context ramen-hub
+
+# Restart hub operator after CRDs are installed
+kubectl rollout restart deployment ramen-hub-operator -n ramen-system
+
+# Verify operator is running
+kubectl get pods -n ramen-system
+```
+
 ## 🌐 **Cross-Cluster Connectivity Issues**
 
 ### **Problem: Minikube Cluster Isolation**
@@ -19,6 +77,14 @@ Minikube clusters are isolated by default - they cannot communicate with each ot
 
 ### **✅ Solution 1: Host Network MinIO (Recommended)**
 
+✅ **Fixed in v2.0+**: The MinIO deployment now automatically uses host network + NodePort for cross-cluster access.
+
+**Automatic Configuration:**
+- **Host Network**: `hostNetwork: true` breaks out of minikube isolation
+- **NodePort Service**: Exposes MinIO on host network (30900=API, 30901=Console)
+- **Dynamic S3 Endpoint**: Script automatically detects hub cluster IP and configures S3 endpoint
+
+**Technical Details:**
 Deploy MinIO on host network to break out of minikube isolation:
 
 ```bash
