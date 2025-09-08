@@ -62,6 +62,16 @@ kubectl rollout restart deployment ramen-hub-operator -n ramen-system
 kubectl get pods -n ramen-system
 ```
 
+## Common Issues and Solutions
+
+### 1. ManagedCluster Not Registering
+
+Check for cluster-manager on wrong cluster:
+```bash
+kubectl --context=ramen-dr1 -n open-cluster-management get deployment
+kubectl --context=ramen-dr2 -n open-cluster-management get deployment
+'''
+
 ## 🌐 **Cross-Cluster Connectivity Issues**
 
 ### **Problem: Minikube Cluster Isolation**

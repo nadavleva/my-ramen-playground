@@ -18,6 +18,38 @@ for cluster in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
     kubectl --context=${HUB_PROFILE} apply -f -
 done
 
+# Add hub IP detection
+HUB_IP=$(minikube -p ramen-hub ip)
+if [ -z "$HUB_IP" ]; then
+    log_error "Could not get Minikube hub IP"
+    exit 1
+fi
+
+# Cleanup any existing cluster-manager from DR clusters
+log_info "Cleaning up any existing cluster-manager from DR clusters..."
+for ctx in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
+    kubectl --context=$ctx -n open-cluster-management delete deployment cluster-manager --ignore-not-found
+done
+
+# Install cluster-manager only on hub
+log_info "Creating OCM prerequisites install cluster-manager on hub..."
+kubectl --context=ramen-hub -n open-cluster-management apply -k demo/yaml/ocm/cluster-manager/config
+
+
+# Install OCM klusterlet on DR clusters
+log_info "Creating OCM prerequisites install klusterlet on DR clusters..."
+for ctx in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
+    kubectl --context=$ctx -n open-cluster-management apply -k demo/yaml/ocm/deploy/klusterlet/config/
+
+done
+
+
+# Wait for cluster-manager pod
+wait_for_pod "ramen-hub" "open-cluster-management" "cluster-manager"
+
+
+# ...existing code for ManagedCluster setup...
+
 # Create ManagedCluster resources
 for cluster in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
     cat <<EOF | kubectl --context=${HUB_PROFILE} apply -f -
@@ -77,7 +109,7 @@ spec:
               value:
                 type: string
 EOF
-}
+
 
 # Create ClusterClaim CRD in all clusters
 for cluster in "${HUB_PROFILE}" "${DR1_PROFILE}" "${DR2_PROFILE}"; do

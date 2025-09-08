@@ -29,6 +29,22 @@ sudo usermod -aG docker $USER
 
 **🚨 CRITICAL**: These are hard minimums enforced by minikube. Lower values will fail with resource errors.
 
+## Critical Requirements
+
+1. OCM Controller Placement
+   - cluster-manager: ONLY on hub cluster
+   - klusterlet: ONLY on DR clusters
+   - Do NOT install cluster-manager on DR clusters
+
+2. Resource Placement
+   - Hub-only resources: DRPolicy, DRPlacementControl, PlacementRule
+   - DR cluster resources: ClusterClaim, application workloads
+
+3. Networking
+   - Use Minikube IP for hub API server
+   - Do not use hostNetwork unless absolutely necessary
+   - Verify connectivity between clusters
+
 ### **🚨 CRITICAL: Environment Setup**
 ```bash
 # MUST unset KUBECONFIG before starting minikube demo
@@ -39,6 +55,21 @@ echo $KUBECONFIG  # Should be empty
 ```
 
 **⚠️ Why this matters**: If `KUBECONFIG` points to other Kubernetes installations (like k3s), minikube will fail to start with permission errors.
+
+## Common Issues
+
+1. Registration Failures
+   - Check cluster-manager is only on hub
+   - Verify ManagedCluster status
+   - Check klusterlet logs
+
+2. Resource Misplacement
+   - DRPolicy must be on hub only
+   - Clean up any stray resources on DR clusters
+
+3. Network Connectivity
+   - Use `minikube -p ramen-hub ip` to get hub address
+   - Test connectivity with wget or curl
 
 ## 🚀 **Quick Start**
 
