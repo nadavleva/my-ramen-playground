@@ -1,7 +1,0 @@
-{{- if .Values.createBootstrapSA }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: agent-registration-bootstrap
-  namespace: {{ .Release.Namespace }}
-{{- end }}
