@@ -98,12 +98,23 @@ run_yamllint() {
     echo "detected tool: ${tool} version: ${detected_version}"
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    # Exclude specific folders and non-existent files
+    # Debug: Show what files we're processing
+    echo "Files found:"
+    get_files '.*\.ya?ml' | grep -v -E "(vendor/|demo/|testbin/|third_party/|\.git/)" 2>/dev/null | while IFS= read -r -d '' file; do
+        if [ -f "$file" ]; then
+            echo "Processing: $file"
+        fi
+    done
+    
+    # Run yamllint and capture exit code
+    local exit_code=0
     get_files '.*\.ya?ml' | grep -v -E "(vendor/|demo/|testbin/|third_party/|\.git/)" 2>/dev/null | while IFS= read -r -d '' file; do
         if [ -f "$file" ]; then
             echo "$file"
         fi
-    done | xargs -r "${tool}" -s -c "${scriptdir}/yamlconfig.yaml" | tee -a "${OUTPUTS_FILE}"
+    done | xargs -r "${tool}" -s -c "${scriptdir}/yamlconfig.yaml" | tee -a "${OUTPUTS_FILE}" || exit_code=$?
+    
+    echo "yamllint exit code: $exit_code"
     echo
     echo
 }
