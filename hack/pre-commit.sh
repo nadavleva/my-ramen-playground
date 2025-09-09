@@ -63,7 +63,7 @@ run_mdl() {
     detected_version=$("${tool}" --version)
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    get_files ".*\.md" | grep -v -E "(DEPLOYMENT|LIGHTWEIGHT|OPENSHIFT|PLAYGROUND|STORAGE)" | xargs -0 -r "${tool}" --style "${scriptdir}/mdl-style.rb" | tee -a "${OUTPUTS_FILE}"
+    get_files ".*\.md" | grep -v -E "(DEPLOYMENT|LIGHTWEIGHT|OPENSHIFT|PLAYGROUND|STORAGE)" 2>/dev/null | xargs -0 -r "${tool}" --style "${scriptdir}/mdl-style.rb" | tee -a "${OUTPUTS_FILE}"
     echo
     echo
 }
@@ -80,7 +80,7 @@ run_shellcheck() {
     detected_version=$("${tool}" --version | grep "version:" | cut -d' ' -f2)
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    get_files '.*\.(ba)?sh' | grep -v '^examples/' | xargs -0 -r "${tool}" | tee -a "${OUTPUTS_FILE}"
+    get_files '.*\.(ba)?sh' | grep -v '^examples/' 2>/dev/null | xargs -0 -r "${tool}" | tee -a "${OUTPUTS_FILE}"
     echo
     echo
 }
@@ -95,13 +95,18 @@ run_yamllint() {
     check_tool "${tool}"
 
     detected_version=$("${tool}" -v | cut -d' ' -f2)
+    echo "detected tool: ${tool} version: ${detected_version}"
     check_version "${detected_version}" "${required_version}" "${tool}"
 
-    get_files '.*\.ya?ml' | xargs -0 -r "${tool}" -s -c "${scriptdir}/yamlconfig.yaml" | tee -a "${OUTPUTS_FILE}"
+    # Exclude specific folders and non-existent files
+    get_files '.*\.ya?ml' | grep -v -E "(vendor/|demo/|testbin/|third_party/|\.git/)" 2>/dev/null | while IFS= read -r -d '' file; do
+        if [ -f "$file" ]; then
+            echo "$file"
+        fi
+    done | xargs -r "${tool}" -s -c "${scriptdir}/yamlconfig.yaml" | tee -a "${OUTPUTS_FILE}"
     echo
     echo
 }
-
 
 run_mdl
 run_shellcheck
