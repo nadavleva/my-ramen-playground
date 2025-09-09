@@ -14,7 +14,19 @@
 #   - S3 secret created (s3-secret.yaml)
 
 apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRCluster
+kind: apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRClusterConfig
+metadata:
+  name: ramen-dr1-config
+  namespace: ramen-system
+spec: {}
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRClusterConfig
+metadata:
+  name: ramen-dr2-config
+  namespace: ramen-system
+spec: {}
 metadata:
   name: ramen-dr1
   namespace: ramen-system
