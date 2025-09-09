@@ -89,7 +89,7 @@ jobs:
           yamllint --version || echo "yamllint not found"
 
       - name: Run linters
-        run: .|
+        run: |
           echo "=== Linters temporarily disabled ==="
           echo "Skipping ./hack/pre-commit.sh due to yamllint CI issues"
           echo "Will re-enable after fixing yamllint configuration"
