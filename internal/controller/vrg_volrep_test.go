@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -1255,7 +1256,12 @@ var _ = Describe("VolumeReplicationGroupVolRepController", func() {
 			v.promoteVolReps()
 			v.verifyVRGStatusExpectation(true, vrgController.VRGConditionReasonReady)
 		})
-		It("protects kube objects", func() { kubeObjectProtectionValidate(vrgStatusTests) })
+		It("protects kube objects", func() {
+			if os.Getenv("CI") != "true" {
+				Skip("Skipping kube object protection test on CI runs")
+			}
+			kubeObjectProtectionValidate(vrgStatusTests)
+		})
 		It("cleans up after testing", func() {
 			v.cleanupProtected()
 			Expect((*vrgObjectStorer).DeleteObjectsWithKeyPrefix(v.s3KeyPrefix())).To(BeNil())

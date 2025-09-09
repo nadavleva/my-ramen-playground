@@ -99,6 +99,45 @@ else
     log_warning "kind not available, skipping cluster cleanup"
 fi
 
+
+log_step "Cleaning minikube clusters..."
+
+# Get list of Ramen profiles more reliably
+PROFILES=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name' || echo "")
+
+if [ -n "$PROFILES" ]; then
+    log_info "Found Ramen profiles to clean:"
+    echo "$PROFILES" | sed 's/^/    /'
+    
+    # Try minikube delete --all --purge first
+    if ! minikube delete --all --purge; then
+        log_warning "Bulk deletion failed, trying individual profiles..."
+        
+        # Try individual profile deletion as fallback
+        for profile in $PROFILES; do
+            log_info "Deleting profile: $profile"
+            minikube delete -p "$profile" || log_warning "Failed to delete $profile"
+        done
+    fi
+    
+    # Final verification
+    REMAINING=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name' || echo "")
+    if [ -n "$REMAINING" ]; then
+        log_error "Some profiles still exist:"
+        echo "$REMAINING" | sed 's/^/    /'
+        log_warning "Please run manually: minikube delete --all --purge"
+    else
+        log_success "All Minikube profiles deleted"
+    fi
+else
+    log_info "No Ramen Minikube profiles found"
+fi
+
+# Clean up related Docker resources
+log_info "Cleaning up related Docker resources..."
+docker ps -a | grep "minikube-ramen" | awk '{print $1}' | xargs -r docker rm -f
+docker network ls | grep "minikube-ramen" | awk '{print $1}' | xargs -r docker network rm
+
 # 4. Clean up Docker images (optional)
 echo ""
 read -p "Remove RamenDR Docker images? (y/N): " -n 1 -r
@@ -176,20 +215,19 @@ echo "🎯 Environment Ready for Fresh Demo"
 echo "=============================================="
 echo ""
 log_info "🚀 Automated Setup (Recommended):"
-echo "   • Complete demo: ./scripts/fresh-demo.sh"
-echo "   • Failover demo: ./examples/demo-failover.sh (after fresh-demo.sh)"
+echo "   • Complete demo: ./demo/scripts/minikube_fresh-demo.sh"
+echo "   • Failover demo: ./demo/scripts/minikube_demo-failover.sh"
 echo ""
 log_info "🔧 Manual Setup (Step-by-Step):"
-echo "   1. Setup clusters: ./scripts/setup.sh kind"
-echo "   2. Install operators: ./scripts/quick-install.sh"
-echo "   3. Install OCM CRDs: Apply files from hack/test/"
-echo "   4. Install resource classes: ./scripts/install-missing-resource-classes.sh"
-echo "   5. Deploy S3 storage: ./examples/deploy-ramendr-s3.sh"
-echo "   6. Run basic demo: ./examples/ramendr-demo.sh"
-echo "   7. Run failover demo: ./examples/demo-failover.sh"
+echo "   1. Setup clusters: ./demo/scripts/minikube_setup.sh"
+echo "   2. Install operators: ./demo/scripts/minikube_quick-install.sh"
+echo "   3. Setup OCM resources: ./demo/scripts/setup-ocm-resources.sh"
+echo "   4. Deploy S3 storage: ./demo/scripts/deploy-ramendr-s3.sh"
+echo "   5. Setup cross-cluster access: ./scripts/setup-cross-cluster-s3.sh"
 echo ""
 log_info "📚 Documentation:"
-echo "   • Demo guide: ./examples/DEMO_FLOW_GUIDE.md"
+echo "   • Demo guide: ./demo/docs/MINIKUBE_README.md"
+echo "   • Troubleshooting: ./demo/docs/MINIKUBE_TROUBLESHOOTING_GUIDE.md"
 echo "   • Architecture: ./examples/RAMENDR_ARCHITECTURE_GUIDE.md"
 echo "   • Quick start: ./examples/AUTOMATED_DEMO_QUICKSTART.md"
 echo ""

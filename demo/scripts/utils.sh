@@ -55,3 +55,39 @@ check_kubectl() {
     local cluster_info=$(kubectl cluster-info | head -n1)
     log_success "Connected to: $cluster_info"
 }
+
+# Add new helper functions
+wait_for_pod() {
+    local context=$1
+    local namespace=$2
+    local label=$3
+    local retries=30
+
+    while [ $retries -gt 0 ]; do
+        if kubectl --context=$context -n $namespace get pod -l app=$label | grep -q Running; then
+            return 0
+        fi
+        sleep 10
+        retries=$((retries-1))
+    done
+    return 1
+}
+
+verify_minikube_contexts() {
+    for ctx in ramen-hub ramen-dr1 ramen-dr2; do
+        if ! kubectl config get-contexts $ctx &>/dev/null; then
+            log_error "Minikube context $ctx not found"
+            exit 1
+        fi
+    done
+}
+
+check_cluster_manager_placement() {
+    # Ensure cluster-manager only exists on hub
+    for ctx in ramen-dr1 ramen-dr2; do
+        if kubectl --context=$ctx -n open-cluster-management get deployment cluster-manager &>/dev/null; then
+            log_error "cluster-manager found on $ctx - should only be on hub"
+            exit 1
+        fi
+    done
+}

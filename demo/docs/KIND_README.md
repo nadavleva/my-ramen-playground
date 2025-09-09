@@ -38,15 +38,21 @@ For a complete automated setup from scratch:
 
 ```bash
 # One-command setup: clusters + operators + demo
-./scripts/fresh-demo.sh
+./demo/scripts/kind_fresh-demo.sh   # For KIND clusters
+# OR
+./demo/scripts/minikube_fresh-demo.sh   # For Minikube clusters
 
 # Or step-by-step (6-step automated flow):
 ./scripts/cleanup-all.sh              # 1. Clean existing environment
-./scripts/setup.sh kind               # 2. Setup kind clusters  
-./scripts/quick-install.sh            # 3. Install RamenDR operators + all CRDs + resource classes (choose option 3)
-./examples/deploy-ramendr-s3.sh      # 4. Deploy S3 storage and DR policies
-./scripts/setup-cross-cluster-s3.sh  # 5. Setup cross-cluster S3 networking
-./examples/ramendr-demo.sh            # 6. Run demo with VRG creation
+./demo/scripts/kind_setup.sh          # 2a. Setup KIND clusters  
+# OR
+./demo/scripts/minikube_setup.sh      # 2b. Setup Minikube clusters
+./demo/scripts/quick-install.sh       # 3. Install RamenDR operators + CRDs
+./demo/scripts/deploy-ramendr-s3.sh   # 4. Deploy S3 storage and DR policies
+./scripts/setup-cross-cluster-s3.sh   # 5. Setup cross-cluster S3 networking
+./demo/scripts/kind_ramendr-demo.sh   # 6a. Run KIND demo with VRG creation
+# OR
+./demo/scripts/minikube_demo-failover.sh # 6b. Run Minikube demo
 ```
 
 > **Note**: The 6-step flow includes automated cross-cluster S3 setup that was added to fix connectivity issues between kind clusters.

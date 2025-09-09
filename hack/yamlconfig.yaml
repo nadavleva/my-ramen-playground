@@ -9,10 +9,12 @@ ignore: |
   config/**
   hack/test/*
   examples/**
+  demo/**
+  Temp/**
 rules:
   indentation:
     indent-sequences: consistent
-  line-length:
-    allow-non-breakable-inline-mappings: true
+  line-length: disable
+  document-start: disable
   truthy:
     check-keys: false

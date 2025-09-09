@@ -30,7 +30,7 @@ check_kubeconfig_for_kind() {
         echo "   export KUBECONFIG=~/.kube/config"
         echo "   kubectl config get-contexts"
         echo ""
-        echo "Or run: ./scripts/fix-kubeconfig.sh"
+        echo "Or run: ../../scripts/fix-kubeconfig.sh"
         exit 1
     fi
     echo -e "${GREEN}✅ Kind contexts available${NC}"
@@ -221,8 +221,8 @@ minio_console() {
     echo -e "${GREEN}🌐 Setting up MinIO Console Access...${NC}"
     echo ""
     
-    if [ -f "./examples/access-minio-console.sh" ]; then
-        ./examples/access-minio-console.sh
+    if [ -f "../scripts/access-minio-console.sh" ]; then
+        ../scripts/access-minio-console.sh
     else
         echo -e "${YELLOW}⚠️  MinIO console script not found${NC}"
         echo "Manual setup:"
@@ -283,7 +283,7 @@ show_commands() {
     echo ""
     
     echo -e "${PURPLE}# Terminal 6: MinIO Console${NC}"
-    echo "./examples/access-minio-console.sh"
+    echo "../scripts/access-minio-console.sh"
     echo ""
     
     echo -e "${PURPLE}# Comprehensive All-in-One Monitoring${NC}"
@@ -305,7 +305,7 @@ show_help() {
     echo -e "${BLUE}❓ RamenDR Demo Monitoring Help${NC}"
     echo ""
     echo -e "${PURPLE}🎯 Quick Start:${NC}"
-    echo "  1. Run: ./examples/demo-monitoring.sh"
+    echo "  1. Run: ./kind_monitoring.sh"
     echo "  2. Choose option 7 to see all commands"
     echo "  3. Copy commands to separate terminals"
     echo "  4. Start monitoring before running demo"

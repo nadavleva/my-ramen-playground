@@ -67,3 +67,4 @@ ramendev/build
 # Ginkgo-related test files
 ginkgo.report
 Temp/
+.ramen-demo-state
