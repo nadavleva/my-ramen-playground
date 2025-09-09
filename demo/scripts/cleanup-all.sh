@@ -101,42 +101,36 @@ fi
 
 
 log_step "Cleaning minikube clusters..."
-log_step "Cleaning minikube clusters..."
 
-# Use sudo for pkill if needed
-log_info "Stopping minikube-related processes..."
-if ! pkill -f minikube 2>/dev/null; then
-    log_warning "Trying with sudo..."
-    sudo pkill -f minikube 2>/dev/null || true
-fi
-sleep 2
+# Get list of Ramen profiles more reliably
+PROFILES=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name' || echo "")
 
-# Get actual running profiles
-PROFILES=$(minikube profile list -o json | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name')
-
-for profile in $PROFILES; do
-    log_info "Cleaning profile: $profile"
+if [ -n "$PROFILES" ]; then
+    log_info "Found Ramen profiles to clean:"
+    echo "$PROFILES" | sed 's/^/    /'
     
-    # Stop profile first
-    minikube stop -p "$profile" || true
-    sleep 2
+    # Try minikube delete --all --purge first
+    if ! minikube delete --all --purge; then
+        log_warning "Bulk deletion failed, trying individual profiles..."
+        
+        # Try individual profile deletion as fallback
+        for profile in $PROFILES; do
+            log_info "Deleting profile: $profile"
+            minikube delete -p "$profile" || log_warning "Failed to delete $profile"
+        done
+    fi
     
-    # Direct deletion without loops
-    log_info "Deleting profile: $profile"
-    minikube delete --purge -p "$profile" || {
-        log_warning "Standard delete failed, trying force delete..."
-        minikube delete --purge --force -p "$profile"
-    }
-done
-
-# Verify using JSON output
-remaining=$(minikube profile list -o json | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name')
-if [ -n "$remaining" ]; then
-    log_error "Failed to delete profiles:"
-    echo "$remaining" | sed 's/^/    /'
-    log_warning "Try manually: minikube delete --profile <profile-name>"
+    # Final verification
+    REMAINING=$(minikube profile list -o json 2>/dev/null | jq -r '.valid[] | select(.Name | startswith("ramen-")) | .Name' || echo "")
+    if [ -n "$REMAINING" ]; then
+        log_error "Some profiles still exist:"
+        echo "$REMAINING" | sed 's/^/    /'
+        log_warning "Please run manually: minikube delete --all --purge"
+    else
+        log_success "All Minikube profiles deleted"
+    fi
 else
-    log_success "All Minikube profiles deleted"
+    log_info "No Ramen Minikube profiles found"
 fi
 
 # Clean up related Docker resources
@@ -221,20 +215,19 @@ echo "🎯 Environment Ready for Fresh Demo"
 echo "=============================================="
 echo ""
 log_info "🚀 Automated Setup (Recommended):"
-echo "   • Complete demo: ./scripts/fresh-demo.sh"
-echo "   • Failover demo: ./examples/demo-failover.sh (after fresh-demo.sh)"
+echo "   • Complete demo: ./demo/scripts/minikube_fresh-demo.sh"
+echo "   • Failover demo: ./demo/scripts/minikube_demo-failover.sh"
 echo ""
 log_info "🔧 Manual Setup (Step-by-Step):"
-echo "   1. Setup clusters: ./scripts/setup.sh kind"
-echo "   2. Install operators: ./scripts/quick-install.sh"
-echo "   3. Install OCM CRDs: Apply files from hack/test/"
-echo "   4. Install resource classes: ./scripts/install-missing-resource-classes.sh"
-echo "   5. Deploy S3 storage: ./examples/deploy-ramendr-s3.sh"
-echo "   6. Run basic demo: ./examples/ramendr-demo.sh"
-echo "   7. Run failover demo: ./examples/demo-failover.sh"
+echo "   1. Setup clusters: ./demo/scripts/minikube_setup.sh"
+echo "   2. Install operators: ./demo/scripts/minikube_quick-install.sh"
+echo "   3. Setup OCM resources: ./demo/scripts/setup-ocm-resources.sh"
+echo "   4. Deploy S3 storage: ./demo/scripts/deploy-ramendr-s3.sh"
+echo "   5. Setup cross-cluster access: ./scripts/setup-cross-cluster-s3.sh"
 echo ""
 log_info "📚 Documentation:"
-echo "   • Demo guide: ./examples/DEMO_FLOW_GUIDE.md"
+echo "   • Demo guide: ./demo/docs/MINIKUBE_README.md"
+echo "   • Troubleshooting: ./demo/docs/MINIKUBE_TROUBLESHOOTING_GUIDE.md"
 echo "   • Architecture: ./examples/RAMENDR_ARCHITECTURE_GUIDE.md"
 echo "   • Quick start: ./examples/AUTOMATED_DEMO_QUICKSTART.md"
 echo ""

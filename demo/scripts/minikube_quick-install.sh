@@ -414,6 +414,17 @@ EOF
 # Install RamenDR Hub Operator
 install_hub_operator() {
     log_step "Installing Ramen Hub Operator..."
+
+    # Create ramen-system namespace first and wait for it
+    log_info "Creating ramen-system namespace..."
+    kubectl --context=ramen-hub create namespace ramen-system --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
+    kubectl --context=ramen-hub wait --for=condition=Active namespace/ramen-system --timeout=50s
+    
+    # Create open-cluster-management namespace
+    log_info "Creating open-cluster-management namespace..."
+    kubectl --context=ramen-hub create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
+    kubectl --context=ramen-hub wait --for=condition=Active namespace/open-cluster-management --timeout=50s
+
     
     # Install storage dependencies first
     install_storage_dependencies
@@ -472,6 +483,17 @@ install_cluster_operator() {
     fi
     
     log_info "Found DR contexts: ${dr_contexts[*]}"
+
+    # Create ramen-system namespace on each DR cluster
+    for context in "${dr_contexts[@]}"; do
+        log_info "Creating ramen-system namespace on $context..."
+        kubectl --context="$context" create namespace ramen-system --dry-run=client -o yaml | kubectl --context="$context" apply -f -
+        kubectl --context="$context" wait --for=condition=Active namespace/ramen-system --timeout=50s
+        
+        log_info "Creating open-cluster-management namespace on $context..."
+        kubectl --context="$context" create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context="$context" apply -f -
+        kubectl --context="$context" wait --for=condition=Active namespace/open-cluster-management --timeout=50s
+    done
     
     # Install on each DR cluster
     for context in "${dr_contexts[@]}"; do
