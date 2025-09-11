@@ -33,22 +33,16 @@ done
 
 # Install cluster-manager only on hub
 log_info "Creating OCM prerequisites install cluster-manager on hub..."
-kubectl --context=ramen-hub -n open-cluster-management apply -k demo/yaml/ocm/cluster-manager/config
-
+kubectl --context=ramen-hub -n open-cluster-management apply -k demo/yaml/ocm/deploy/cluster-manager/config
 
 # Install OCM klusterlet on DR clusters
 log_info "Creating OCM prerequisites install klusterlet on DR clusters..."
 for ctx in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
     kubectl --context=$ctx -n open-cluster-management apply -k demo/yaml/ocm/deploy/klusterlet/config/
-
 done
-
 
 # Wait for cluster-manager pod
 wait_for_pod "ramen-hub" "open-cluster-management" "cluster-manager"
-
-
-# ...existing code for ManagedCluster setup...
 
 # Create ManagedCluster resources
 for cluster in "${DR1_PROFILE}" "${DR2_PROFILE}"; do
@@ -65,8 +59,6 @@ spec:
 EOF
 done
 
-# Create PlacementRule
-
 # Create PlacementRule with clusterSelector
 cat <<EOF | kubectl --context=${HUB_PROFILE} apply -f -
 apiVersion: apps.open-cluster-management.io/v1
@@ -76,7 +68,7 @@ metadata:
   namespace: ramen-system
 spec:
   clusterSelector: {}
-EOFkubectl --context=ramen-hub -n ramen-system logs ramen-hub-operator-776f79764-kphck
+EOF
 
 # Function to create ClusterClaim CRD
 create_clusterclaim_crd() {
@@ -109,7 +101,7 @@ spec:
               value:
                 type: string
 EOF
-
+}
 
 # Create ClusterClaim CRD in all clusters
 for cluster in "${HUB_PROFILE}" "${DR1_PROFILE}" "${DR2_PROFILE}"; do
@@ -135,7 +127,4 @@ for cluster in "${HUB_PROFILE}" "${DR1_PROFILE}" "${DR2_PROFILE}"; do
     kubectl --context=${cluster} delete pod -n ramen-system -l control-plane=controller-manager --grace-period=0 || true
 done
 
-
-
 log_success "OCM prerequisites created successfully"
-

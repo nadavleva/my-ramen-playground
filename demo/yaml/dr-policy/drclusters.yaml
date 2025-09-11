@@ -14,19 +14,7 @@
 #   - S3 secret created (s3-secret.yaml)
 
 apiVersion: ramendr.openshift.io/v1alpha1
-kind: apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRClusterConfig
-metadata:
-  name: ramen-dr1-config
-  namespace: ramen-system
-spec: {}
----
-apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRClusterConfig
-metadata:
-  name: ramen-dr2-config
-  namespace: ramen-system
-spec: {}
+kind: DRCluster
 metadata:
   name: ramen-dr1
   namespace: ramen-system
@@ -89,4 +77,3 @@ spec:
 #     provisioner: ebs.csi.aws.com
 #   - name: efs
 #     provisioner: efs.csi.aws.com
-
