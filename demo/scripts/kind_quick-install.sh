@@ -500,6 +500,8 @@ verify_installation() {
     kubectl get pods -n ramen-system -l "app.kubernetes.io/part-of=ramen" --context=kind-ramen-hub 2>/dev/null || echo "  No RamenDR pods found"
     echo "Current cluster ($(kubectl config current-context)):"
     kubectl get pods -n ramen-system -l "app.kubernetes.io/part-of=ramen" 2>/dev/null || echo "  No RamenDR pods found"
+
+    log_success "RamenDR installation verification complete"
 }
 
 # Create sample DRPolicy

@@ -275,8 +275,8 @@ create_clusters() {
 setup_networking() {
     log_step "Configuring cluster networking..."
     echo ""
-    
-    for profile in "$HUB_PROFILE" "$DR1_PROFILE"; do
+
+    for profile in "$HUB_PROFILE" "$DR1_PROFILE" "$DR2_PROFILE"; do
         if env KUBECONFIG="" minikube profile list 2>/dev/null | grep -q "^$profile"; then
             log_info "🌐 Setting up networking for $profile..."
             

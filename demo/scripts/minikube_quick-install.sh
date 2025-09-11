@@ -34,50 +34,470 @@ check_kubeconfig_for_minikube() {
 check_kubeconfig_for_minikube
 check_kubectl
 
-# Install storage dependencies (same as original)
+# # Install storage dependencies (same as original)
+# install_storage_dependencies() {
+#     log_info "Installing storage replication dependencies..."
+    
+#     # Install VolumeReplication CRDs (including missing VolumeGroup CRDs)
+#     log_info "Installing VolumeReplication CRDs..."
+#     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml || log_warning "VolumeReplication CRD may already exist"
+#     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml || log_warning "VolumeReplicationClass CRD may already exist"
+    
+#     # Install missing VolumeGroup CRDs that operators expect
+#     log_info "Installing VolumeGroup CRDs..."
+#     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplications.yaml || log_warning "VolumeGroupReplication CRD may already exist"
+#     kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplicationclasses.yaml || log_warning "VolumeGroupReplicationClass CRD may already exist"
+    
+#     # Install External Snapshotter (required by VolSync)
+#     log_info "Installing External Snapshotter..."
+    
+#     # Install Snapshotter CRDs (using direct YAML files for reliability)
+#     log_info "Installing Snapshotter CRDs..."
+#     kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || log_warning "VolumeSnapshotClass CRD may already exist"
+#     kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || log_warning "VolumeSnapshot CRD may already exist"
+#     kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || log_warning "VolumeSnapshotContent CRD may already exist"
+    
+#     # Install Snapshot Controller (using direct YAML files for reliability)
+#     log_info "Installing Snapshot Controller..."
+#     kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || log_warning "Snapshot Controller RBAC may already exist"
+#     kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || log_warning "Snapshot Controller may already exist"
+    
+#     # Install VolSync using Helm
+#     log_info "Installing VolSync for storage replication..."
+#     helm repo add backube https://backube.github.io/helm-charts/ || log_warning "VolSync repo may already exist"
+#     helm repo update
+    
+#     # Create volsync-system namespace if it doesn't exist
+#     kubectl create namespace volsync-system --dry-run=client -o yaml | kubectl apply -f -
+    
+#     # Install VolSync with timeout handling for development environments
+#     log_info "Installing VolSync (may timeout in minikube environments)..."
+#     if helm upgrade --install volsync backube/volsync --namespace volsync-system --wait --timeout=5m; then
+#         log_success "VolSync installed successfully"
+#     else
+#         log_warning "VolSync installation may have timed out (common in development)"
+#         log_info "VolSync may still be installing in the background"
+#     fi
+# }
+
+# Function to check if a CRD exists
+crd_exists() {
+    local crd_name="$1"
+    kubectl get crd "$crd_name" >/dev/null 2>&1
+    return $?
+}
+
+# Function to install a CRD only if it doesn't exist
+install_crd_if_missing() {
+    local crd_name="$1"
+    local display_name="$2"
+    local yaml_content="$3"
+    
+    if crd_exists "$crd_name"; then
+        log_info "✅ $display_name CRD already exists, skipping"
+        return 0
+    fi
+    
+    log_info "Installing $display_name CRD..."
+    if echo "$yaml_content" | kubectl apply -f -; then
+        log_success "✅ $display_name CRD installed successfully"
+        return 0
+    else
+        log_error "❌ Failed to install $display_name CRD"
+        return 1
+    fi
+}
+
 install_storage_dependencies() {
     log_info "Installing storage replication dependencies..."
     
-    # Install VolumeReplication CRDs (including missing VolumeGroup CRDs)
-    log_info "Installing VolumeReplication CRDs..."
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml || log_warning "VolumeReplication CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml || log_warning "VolumeReplicationClass CRD may already exist"
+    # Install VolumeReplication CRDs
+    log_info "Checking VolumeReplication CRDs..."
     
-    # Install missing VolumeGroup CRDs that operators expect
-    log_info "Installing VolumeGroup CRDs..."
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplications.yaml || log_warning "VolumeGroupReplication CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumegroupreplicationclasses.yaml || log_warning "VolumeGroupReplicationClass CRD may already exist"
+    install_crd_if_missing \
+        "volumereplications.replication.storage.openshift.io" \
+        "VolumeReplication" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumereplications.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              dataSource:
+                type: object
+              replicationState:
+                type: string
+                enum: ["primary", "secondary"]
+          status:
+            type: object
+            properties:
+              state:
+                type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+  scope: Namespaced
+  names:
+    plural: volumereplications
+    singular: volumereplication
+    kind: VolumeReplication
+EOF
+)"
+
+    install_crd_if_missing \
+        "volumereplicationclasses.replication.storage.openshift.io" \
+        "VolumeReplicationClass" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumereplicationclasses.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              provisioner:
+                type: string
+              parameters:
+                type: object
+  scope: Cluster
+  names:
+    plural: volumereplicationclasses
+    singular: volumereplicationclass
+    kind: VolumeReplicationClass
+EOF
+)"
+
+    # Install VolumeGroup CRDs
+    log_info "Checking VolumeGroup CRDs..."
     
-    # Install External Snapshotter (required by VolSync)
-    log_info "Installing External Snapshotter..."
+    install_crd_if_missing \
+        "volumegroupreplications.replication.storage.openshift.io" \
+        "VolumeGroupReplication" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupreplications.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              dataSource:
+                type: object
+              replicationState:
+                type: string
+                enum: ["primary", "secondary"]
+          status:
+            type: object
+            properties:
+              state:
+                type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+  scope: Namespaced
+  names:
+    plural: volumegroupreplications
+    singular: volumegroupreplication
+    kind: VolumeGroupReplication
+EOF
+)"
+
+    install_crd_if_missing \
+        "volumegroupreplicationclasses.replication.storage.openshift.io" \
+        "VolumeGroupReplicationClass" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumegroupreplicationclasses.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              provisioner:
+                type: string
+              parameters:
+                type: object
+  scope: Cluster
+  names:
+    plural: volumegroupreplicationclasses
+    singular: volumegroupreplicationclass
+    kind: VolumeGroupReplicationClass
+EOF
+)"
+
+    # Install External Snapshotter CRDs
+    log_info "Checking External Snapshotter CRDs..."
     
-    # Install Snapshotter CRDs (using direct YAML files for reliability)
-    log_info "Installing Snapshotter CRDs..."
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || log_warning "VolumeSnapshotClass CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || log_warning "VolumeSnapshot CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || log_warning "VolumeSnapshotContent CRD may already exist"
+    install_crd_if_missing \
+        "volumesnapshotclasses.snapshot.storage.k8s.io" \
+        "VolumeSnapshotClass" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumesnapshotclasses.snapshot.storage.k8s.io
+spec:
+  group: snapshot.storage.k8s.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          deletionPolicy:
+            type: string
+            enum: ["Delete", "Retain"]
+          driver:
+            type: string
+          parameters:
+            type: object
+  scope: Cluster
+  names:
+    plural: volumesnapshotclasses
+    singular: volumesnapshotclass
+    kind: VolumeSnapshotClass
+EOF
+)"
+
+    install_crd_if_missing \
+        "volumesnapshots.snapshot.storage.k8s.io" \
+        "VolumeSnapshot" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumesnapshots.snapshot.storage.k8s.io
+spec:
+  group: snapshot.storage.k8s.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              source:
+                type: object
+              volumeSnapshotClassName:
+                type: string
+          status:
+            type: object
+            properties:
+              boundVolumeSnapshotContentName:
+                type: string
+              creationTime:
+                type: string
+              readyToUse:
+                type: boolean
+  scope: Namespaced
+  names:
+    plural: volumesnapshots
+    singular: volumesnapshot
+    kind: VolumeSnapshot
+EOF
+)"
+
+    install_crd_if_missing \
+        "volumesnapshotcontents.snapshot.storage.k8s.io" \
+        "VolumeSnapshotContent" \
+        "$(cat <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumesnapshotcontents.snapshot.storage.k8s.io
+spec:
+  group: snapshot.storage.k8s.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deletionPolicy:
+                type: string
+                enum: ["Delete", "Retain"]
+              driver:
+                type: string
+              volumeSnapshotRef:
+                type: object
+          status:
+            type: object
+            properties:
+              snapshotHandle:
+                type: string
+              creationTime:
+                type: integer
+              readyToUse:
+                type: boolean
+  scope: Cluster
+  names:
+    plural: volumesnapshotcontents
+    singular: volumesnapshotcontent
+    kind: VolumeSnapshotContent
+EOF
+)"
+
+    # Install Snapshot Controller components
+    install_snapshot_controller() {
+        log_info "Checking Snapshot Controller components..."
+        
+        # Create namespace if it doesn't exist
+        if ! kubectl get namespace snapshot-controller >/dev/null 2>&1; then
+            log_info "Creating snapshot-controller namespace..."
+            kubectl create namespace snapshot-controller
+        else
+            log_info "✅ snapshot-controller namespace already exists"
+        fi
+        
+        # Check if snapshot controller deployment exists
+        if kubectl get deployment snapshot-controller -n snapshot-controller >/dev/null 2>&1; then
+            log_info "✅ Snapshot Controller already exists, skipping"
+            return 0
+        fi
+        
+        log_info "Installing Snapshot Controller..."
+        # Install snapshot controller deployment
+        kubectl apply -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snapshot-controller
+  namespace: snapshot-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snapshot-controller
+  template:
+    metadata:
+      labels:
+        app: snapshot-controller
+    spec:
+      serviceAccountName: snapshot-controller
+      containers:
+      - name: snapshot-controller
+        image: registry.k8s.io/sig-storage/snapshot-controller:v6.3.0
+        args:
+        - "--v=5"
+        - "--leader-election=false"
+EOF
+        
+        log_success "✅ Snapshot Controller installed"
+    }
     
-    # Install Snapshot Controller (using direct YAML files for reliability)
-    log_info "Installing Snapshot Controller..."
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || log_warning "Snapshot Controller RBAC may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || log_warning "Snapshot Controller may already exist"
+    install_snapshot_controller
+
+    # Install VolSync with existence check
+    install_volsync() {
+        log_info "Checking VolSync installation..."
+        
+        # Check if VolSync is already installed
+        if helm list -n volsync-system 2>/dev/null | grep -q volsync; then
+            log_info "✅ VolSync already installed, skipping"
+            return 0
+        fi
+        
+        log_info "Installing VolSync for storage replication..."
+        
+        # Check if helm is available
+        if ! command -v helm >/dev/null 2>&1; then
+            log_error "Helm is required but not installed. Please install Helm first."
+            return 1
+        fi
+        
+        # Add repo if not already added
+        if ! helm repo list 2>/dev/null | grep -q "backube"; then
+            log_info "Adding VolSync helm repository..."
+            helm repo add backube https://backube.github.io/helm-charts/
+        else
+            log_info "✅ VolSync repo already exists"
+        fi
+        
+        # Update repos
+        helm repo update >/dev/null 2>&1 || log_warning "Failed to update helm repos"
+        
+        # Create namespace if it doesn't exist
+        if ! kubectl get namespace volsync-system >/dev/null 2>&1; then
+            log_info "Creating volsync-system namespace..."
+            kubectl create namespace volsync-system
+        else
+            log_info "✅ volsync-system namespace already exists"
+        fi
+        
+        # Install VolSync
+        log_info "Installing VolSync (this may take a few minutes)..."
+        if helm install volsync backube/volsync --namespace volsync-system --wait --timeout=10m; then
+            log_success "✅ VolSync installed successfully"
+        else
+            log_warning "VolSync installation may have timed out, checking status..."
+            # Check if pods are actually running
+            sleep 30
+            if kubectl get pods -n volsync-system --no-headers 2>/dev/null | grep -q "Running"; then
+                log_success "✅ VolSync pods are running despite timeout"
+            else
+                log_warning "VolSync installation status unclear"
+            fi
+        fi
+    }
     
-    # Install VolSync using Helm
-    log_info "Installing VolSync for storage replication..."
-    helm repo add backube https://backube.github.io/helm-charts/ || log_warning "VolSync repo may already exist"
-    helm repo update
+    install_volsync
     
-    # Create volsync-system namespace if it doesn't exist
-    kubectl create namespace volsync-system --dry-run=client -o yaml | kubectl apply -f -
-    
-    # Install VolSync with timeout handling for development environments
-    log_info "Installing VolSync (may timeout in minikube environments)..."
-    if helm upgrade --install volsync backube/volsync --namespace volsync-system --wait --timeout=5m; then
-        log_success "VolSync installed successfully"
-    else
-        log_warning "VolSync installation may have timed out (common in development)"
-        log_info "VolSync may still be installing in the background"
-    fi
+    log_success "Storage dependencies installation completed"
 }
 
 # Install missing resource classes for minikube
@@ -412,124 +832,237 @@ EOF
 }
 
 # Install RamenDR Hub Operator
+# install_hub_operator() {
+#     log_step "Installing Ramen Hub Operator..."
+
+#     # Create ramen-system namespace first with better error handling
+#     log_info "Creating ramen-system namespace..."
+#     kubectl --context=ramen-hub create namespace ramen-system --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
+    
+#     # Wait for namespace with more reasonable timeout and better error handling
+#     log_info "Waiting for namespace to be ready..."
+#     if ! kubectl --context=ramen-hub wait --for=condition=Active namespace/ramen-system --timeout=90s; then
+#         log_warning "Namespace wait timed out, checking if namespace exists..."
+#         if kubectl --context=ramen-hub get namespace ramen-system >/dev/null 2>&1; then
+#             log_info "Namespace exists, continuing..."
+#         else
+#             log_error "Namespace creation failed"
+#             exit 1
+#         fi
+#     fi
+    
+#     # Create open-cluster-management namespace with similar handling
+#     log_info "Creating open-cluster-management namespace..."
+#     kubectl --context=ramen-hub create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
+    
+#     if ! kubectl --context=ramen-hub wait --for=condition=Active namespace/open-cluster-management --timeout=60s; then
+#         log_warning "OCM namespace wait timed out, checking if namespace exists..."
+#         if kubectl --context=ramen-hub get namespace open-cluster-management >/dev/null 2>&1; then
+#             log_info "OCM namespace exists, continuing..."
+#         else
+#             log_error "OCM namespace creation failed"
+#             exit 1
+#         fi
+#     fi
+
+    
+#     # Install storage dependencies first
+#     install_storage_dependencies
+#     install_missing_resource_classes
+    
+#     log_info "Installing Ramen Hub Operator..."
+    
+#     # Install RamenDR Hub CRDs
+#     log_info "Installing RamenDR Hub CRDs..."
+#     make install-hub
+    
+#     # Install OCM CRDs required for hub operator
+#     install_ocm_crds
+    
+#     # Build and load operator image
+#     log_info "Building RamenDR operator image..."
+#     if make podman-build; then
+#         log_info "Podman build succeeded, copying image to docker registry..."
+#         # Copy podman image to docker so minikube can access it
+#         podman save quay.io/ramendr/ramen-operator:latest | docker load || {
+#             log_warning "Failed to copy podman image to docker, trying direct minikube load..."
+#         }
+#     else
+#         log_warning "podman-build failed, trying docker-build..."
+#         make docker-build
+#     fi
+    
+#     # Load image into minikube
+#     log_info "Loading operator image into minikube..."
+#     minikube image load quay.io/ramendr/ramen-operator:latest --profile=ramen-hub
+    
+#     # Deploy hub operator
+#     log_info "Deploying hub operator to ramen-hub cluster..."
+#     kubectl config use-context ramen-hub
+#     make deploy-hub
+    
+#     # Wait for deployment
+#     log_info "Waiting for hub operator to be ready..."
+#     kubectl wait --for=condition=available --timeout=300s deployment/ramen-hub-operator -n ramen-system
+    
+#     log_success "Ramen Hub Operator installed successfully"
+# }
+
+# Install RamenDR Cluster Operator  
+# install_cluster_operator() {
+#     log_step "Installing Ramen Cluster Operator..."
+    
+#     # Get available DR cluster contexts
+#     local dr_contexts=($(kubectl config get-contexts -o name | grep "^ramen-dr"))
+    
+#     if [ ${#dr_contexts[@]} -eq 0 ]; then
+#         log_error "No DR cluster contexts found (ramen-dr*)"
+#         log_info "Available contexts:"
+#         kubectl config get-contexts -o name | sed 's/^/   /'
+#         exit 1
+#     fi
+    
+#     log_info "Found DR contexts: ${dr_contexts[*]}"
+
+#     # Create ramen-system namespace on each DR cluster
+#     for context in "${dr_contexts[@]}"; do
+#         log_info "Creating ramen-system namespace on $context..."
+#         kubectl --context="$context" create namespace ramen-system --dry-run=client -o yaml | kubectl --context="$context" apply -f -
+#         kubectl --context="$context" wait --for=condition=Active namespace/ramen-system --timeout=50s
+        
+#         log_info "Creating open-cluster-management namespace on $context..."
+#         kubectl --context="$context" create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context="$context" apply -f -
+#         kubectl --context="$context" wait --for=condition=Active namespace/open-cluster-management --timeout=50s
+#     done
+    
+#     # Install on each DR cluster
+#     for context in "${dr_contexts[@]}"; do
+#         log_info "Installing on $context..."
+#         kubectl config use-context "$context"
+        
+#         # Get profile name from context
+#         local profile=${context}
+        
+#         # Ensure image is available in docker registry and load into minikube
+#         log_info "Loading operator image into minikube profile: $profile..."
+        
+#         # Copy from podman to docker if needed (in case this step runs independently)
+#         if podman images | grep -q "ramen-operator.*latest"; then
+#             log_info "Copying podman image to docker registry for $profile..."
+#             podman save quay.io/ramendr/ramen-operator:latest | docker load 2>/dev/null || true
+#         fi
+        
+#         # Load into minikube with correct environment
+#         env KUBECONFIG="" minikube -p "$profile" image load quay.io/ramendr/ramen-operator:latest || {
+#             log_warning "Failed to load image into $profile, deployment may fail"
+#         }
+        
+#         # Install storage dependencies and missing resources
+#         install_storage_dependencies
+#         install_missing_resource_classes
+        
+#         # Deploy cluster operator
+#         log_info "Deploying cluster operator to $context..."
+#         make deploy-dr-cluster
+        
+#         # Wait for deployment
+#         log_info "Waiting for cluster operator to be ready..."
+#         kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+        
+#         log_success "Cluster operator installed on $context"
+#     done
+# }
+
+
+# Replace the install_hub_operator function with:
 install_hub_operator() {
     log_step "Installing Ramen Hub Operator..."
 
-    # Create ramen-system namespace first and wait for it
-    log_info "Creating ramen-system namespace..."
-    kubectl --context=ramen-hub create namespace ramen-system --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
-    kubectl --context=ramen-hub wait --for=condition=Active namespace/ramen-system --timeout=50s
+    # Use utility functions
+    ensure_namespace "ramen-hub" "ramen-system" 90 || exit 1
+    ensure_namespace "ramen-hub" "open-cluster-management" 60 || exit 1
     
-    # Create open-cluster-management namespace
-    log_info "Creating open-cluster-management namespace..."
-    kubectl --context=ramen-hub create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context=ramen-hub apply -f -
-    kubectl --context=ramen-hub wait --for=condition=Active namespace/open-cluster-management --timeout=50s
-
-    
-    # Install storage dependencies first
+    # Install dependencies
     install_storage_dependencies
     install_missing_resource_classes
     
-    log_info "Installing Ramen Hub Operator..."
-    
-    # Install RamenDR Hub CRDs
     log_info "Installing RamenDR Hub CRDs..."
     make install-hub
     
-    # Install OCM CRDs required for hub operator
+    # Install OCM CRDs
     install_ocm_crds
     
-    # Build and load operator image
-    log_info "Building RamenDR operator image..."
-    if make podman-build; then
-        log_info "Podman build succeeded, copying image to docker registry..."
-        # Copy podman image to docker so minikube can access it
-        podman save quay.io/ramendr/ramen-operator:latest | docker load || {
-            log_warning "Failed to copy podman image to docker, trying direct minikube load..."
-        }
-    else
-        log_warning "podman-build failed, trying docker-build..."
-        make docker-build
-    fi
-    
-    # Load image into minikube
-    log_info "Loading operator image into minikube..."
-    minikube image load quay.io/ramendr/ramen-operator:latest --profile=ramen-hub
+    # Build and deploy
+    build_and_load_image "ramen-hub" || exit 1
     
     # Deploy hub operator
     log_info "Deploying hub operator to ramen-hub cluster..."
-    kubectl config use-context ramen-hub
+    switch_context "ramen-hub" || exit 1
     make deploy-hub
     
-    # Wait for deployment
-    log_info "Waiting for hub operator to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/ramen-hub-operator -n ramen-system
+    # Wait for deployment using utility
+    wait_for_deployment "ramen-hub" "ramen-hub-operator" "ramen-system" 300 || exit 1
     
     log_success "Ramen Hub Operator installed successfully"
 }
 
-# Install RamenDR Cluster Operator  
+# Replace install_cluster_operator function with:
 install_cluster_operator() {
     log_step "Installing Ramen Cluster Operator..."
     
-    # Get available DR cluster contexts
-    local dr_contexts=($(kubectl config get-contexts -o name | grep "^ramen-dr"))
+    # Get DR contexts using utility
+    local dr_contexts=($(get_contexts_matching "ramen-dr"))
     
     if [ ${#dr_contexts[@]} -eq 0 ]; then
         log_error "No DR cluster contexts found (ramen-dr*)"
-        log_info "Available contexts:"
-        kubectl config get-contexts -o name | sed 's/^/   /'
         exit 1
     fi
     
     log_info "Found DR contexts: ${dr_contexts[*]}"
 
-    # Create ramen-system namespace on each DR cluster
+    # Create namespaces on all DR clusters using utility
     for context in "${dr_contexts[@]}"; do
-        log_info "Creating ramen-system namespace on $context..."
-        kubectl --context="$context" create namespace ramen-system --dry-run=client -o yaml | kubectl --context="$context" apply -f -
-        kubectl --context="$context" wait --for=condition=Active namespace/ramen-system --timeout=50s
-        
-        log_info "Creating open-cluster-management namespace on $context..."
-        kubectl --context="$context" create namespace open-cluster-management --dry-run=client -o yaml | kubectl --context="$context" apply -f -
-        kubectl --context="$context" wait --for=condition=Active namespace/open-cluster-management --timeout=50s
+        log_info "Creating namespaces \"ramen-system\" and \"open-cluster-management\" on $context..."
+        ensure_namespace "$context" "ramen-system" 60 || exit 1
+        ensure_namespace "$context" "open-cluster-management" 60 || exit 1
     done
     
     # Install on each DR cluster
     for context in "${dr_contexts[@]}"; do
         log_info "Installing on $context..."
-        kubectl config use-context "$context"
+        switch_context "$context" || exit 1
         
-        # Get profile name from context
-        local profile=${context}
+        # Build and load image
+        build_and_load_image "${context}" || log_warning "Image load failed for $context"
         
-        # Ensure image is available in docker registry and load into minikube
-        log_info "Loading operator image into minikube profile: $profile..."
-        
-        # Copy from podman to docker if needed (in case this step runs independently)
-        if podman images | grep -q "ramen-operator.*latest"; then
-            log_info "Copying podman image to docker registry for $profile..."
-            podman save quay.io/ramendr/ramen-operator:latest | docker load 2>/dev/null || true
-        fi
-        
-        # Load into minikube with correct environment
-        env KUBECONFIG="" minikube -p "$profile" image load quay.io/ramendr/ramen-operator:latest || {
-            log_warning "Failed to load image into $profile, deployment may fail"
-        }
-        
-        # Install storage dependencies and missing resources
+        # Install dependencies
+        log_info "Installing storage dependencies on $context..."
         install_storage_dependencies
+        log_info "Installing missing resource classes on $context..."
         install_missing_resource_classes
         
-        # Deploy cluster operator
         log_info "Deploying cluster operator to $context..."
+        # Deploy
         make deploy-dr-cluster
         
-        # Wait for deployment
-        log_info "Waiting for cluster operator to be ready..."
-        kubectl wait --for=condition=available --timeout=300s deployment/ramen-dr-cluster-operator -n ramen-system
+        # Wait for deployment using utility
+        wait_for_deployment "$context" "ramen-dr-cluster-operator" "ramen-system" 300 || exit 1
         
         log_success "Cluster operator installed on $context"
+    done
+}
+
+# Update verify_installation to use utilities:
+verify_installation() {
+    log_step "Verifying installation..."
+    
+    # Check hub operator
+    verify_deployment "ramen-hub" "ramen-hub-operator" "ramen-system" "Hub operator"
+    
+    # Check DR operators
+    local dr_contexts=($(get_contexts_matching "ramen-dr"))
+    for context in "${dr_contexts[@]}"; do
+        verify_deployment "$context" "ramen-dr-cluster-operator" "ramen-system" "DR operator on $context"
     done
 }
 
@@ -586,6 +1119,8 @@ verify_installation() {
         fi
     done
 }
+
+
 
 # Create sample DR policy
 create_sample_policy() {

@@ -103,19 +103,50 @@ kubectl --context=ramen-hub -n open-cluster-management get deployment
 # Check ManagedCluster status
 kubectl --context=ramen-hub get managedcluster
 
-# 5. Deploy S3 storage
+# 5. Create DR Policy and Configuration (NEW STEP)
+./demo/scripts/setup-dr-policy.sh
+
+
+# 6. Deploy S3 storage
 ./demo/scripts/deploy-ramendr-s3.sh
 
-# 6. Setup cross-cluster access
+# 7. Setup cross-cluster access
 ./scripts/setup-cross-cluster-s3.sh
 
-# 7. Verify S3 access
+# 8. Verify S3 access
 # Test MinIO access from DR clusters
 HOST_IP=$(minikube -p ramen-hub ip)
 kubectl --context=ramen-dr1 run test-minio --image=minio/mc --rm -i --restart=Never -- \
     /bin/sh -c "mc alias set myminio http://${HOST_IP}:30900 minioadmin minioadmin && mc ls myminio/ramen-metadata/"
 
-# 8. Run failover demo
+# 9. Create test application (Choose your approach)
+
+## Approach A: Direct VRG (Simple - same as KIND demo)
+```bash
+# Deploy nginx application with PVC
+kubectl --context=ramen-dr1 apply -f demo/yaml/test-application/nginx-with-pvc-fixed.yaml
+
+# Create VRG to protect the application  
+kubectl --context=ramen-dr1 apply -f demo/yaml/test-application/nginx-vrg-correct.yaml
+
+# Verify VRG creation
+kubectl --context=ramen-dr1 get vrg -n test-app
+```
+
+## Approach B: DRPlacementControl (Advanced - OCM managed)
+```bash
+# Uses OCM for automated placement management
+./demo/scripts/setup-test-app-drpc.sh
+
+# Verify DRPC creation
+kubectl --context=ramen-hub get drplacementcontrol -n test-app
+```
+
+**Which to choose?**
+- **Approach A**: Simpler, direct control, same as KIND demo
+- **Approach B**: Production-like, automated placement, requires OCM
+
+# 10. Run failover demo
 ./demo/scripts/minikube_demo-failover.sh
 ```
 
