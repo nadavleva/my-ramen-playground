@@ -1,0 +1,11 @@
+apiVersion: replication.storage.openshift.io/v1alpha1
+kind: VolumeReplicationClass
+metadata:
+  name: demo-replication-class
+  labels:
+    app.kubernetes.io/name: ramen-demo
+    ramendr.openshift.io/replicationID: ramen-volsync
+spec:
+  provisioner: hostpath.csi.k8s.io
+  parameters:
+    copyMethod: Snapshot

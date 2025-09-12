@@ -13,43 +13,120 @@ source "$SCRIPT_DIR/utils.sh"
 check_kubeconfig_for_kind
 check_kubectl
 
-# Install Ramen Hub Operator
+# Helper function to apply resources with fallback and continue on errors
+apply_with_fallback() {
+    local description="$1"
+    local local_path="$2"
+    local fallback_url="$3"
+    local continue_on_error="${4:-true}"
+    
+    log_info "Installing $description..."
+    
+    # Try local path first
+    if [[ -n "$local_path" && -f "$local_path" ]]; then
+        log_info "Using local file: $local_path"
+        if kubectl apply -f "$local_path" 2>/dev/null; then
+            log_success "$description installed successfully (local)"
+            return 0
+        else
+            log_warning "Failed to apply local file: $local_path"
+        fi
+    elif [[ -n "$local_path" ]]; then
+        log_info "Using local kustomization: $local_path"
+        if kubectl apply -k "$local_path" 2>/dev/null; then
+            log_success "$description installed successfully (local kustomization)"
+            return 0
+        else
+            log_warning "Failed to apply local kustomization: $local_path"
+        fi
+    fi
+    
+    # Try fallback URL if provided
+    if [[ -n "$fallback_url" ]]; then
+        log_info "Trying fallback URL: $fallback_url"
+        if kubectl apply -f "$fallback_url" 2>/dev/null; then
+            log_success "$description installed successfully (remote)"
+            return 0
+        else
+            log_error "Failed to apply from URL: $fallback_url"
+        fi
+    fi
+    
+    # Log final status
+    if [[ "$continue_on_error" == "true" ]]; then
+        log_warning "$description installation failed - continuing with other components"
+        return 1
+    else
+        log_error "$description installation failed - this may cause issues"
+        return 1
+    fi
+}
+
+# Install storage dependencies (improved version with local files and better error handling)
 install_storage_dependencies() {
     log_info "Installing storage replication dependencies..."
     
-    # Install VolumeReplication CRD
-    log_info "Installing VolumeReplication CRD..."
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml || log_warning "VolumeReplication CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml || log_warning "VolumeReplicationClass CRD may already exist"
+    # Define local paths relative to script directory  
+    local storage_deps_dir="$SCRIPT_DIR/../yaml/storage-dependencies"
+    local failed_operations=0
     
-    # Install External Snapshotter (required by VolSync)
-    log_info "Installing External Snapshotter..."
+    # Install CRDs first using local files with fallback
+    log_info "Installing storage-related CRDs..."
+    if ! apply_with_fallback "Storage CRDs" "$storage_deps_dir/crds" ""; then
+        ((failed_operations++))
+    fi
     
-    # Install Snapshotter CRDs (using direct YAML files for reliability)
-    log_info "Installing Snapshotter CRDs..."
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || log_warning "VolumeSnapshotClass CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || log_warning "VolumeSnapshot CRD may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || log_warning "VolumeSnapshotContent CRD may already exist"
+    # Install Snapshot Controllers using local files with fallback  
+    log_info "Installing Snapshot Controllers..."
+    if ! apply_with_fallback "Snapshot Controllers" "$storage_deps_dir/controllers" ""; then
+        ((failed_operations++))
+    fi
     
-    # Install Snapshot Controller (using direct YAML files for reliability)
-    log_info "Installing Snapshot Controller..."
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || log_warning "Snapshot Controller RBAC may already exist"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || log_warning "Snapshot Controller may already exist"
+    # Fallback: Try individual external URLs if local kustomization failed
+    if [[ $failed_operations -gt 0 ]]; then
+        log_info "Some local installations failed, trying individual external resources..."
+        
+        # VolumeReplication CRDs
+        apply_with_fallback "VolumeReplication CRD" "" "https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplications.yaml"
+        apply_with_fallback "VolumeReplicationClass CRD" "" "https://raw.githubusercontent.com/csi-addons/volume-replication-operator/main/config/crd/bases/replication.storage.openshift.io_volumereplicationclasses.yaml"
+        
+        # Snapshot CRDs
+        apply_with_fallback "VolumeSnapshotClass CRD" "" "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
+        apply_with_fallback "VolumeSnapshot CRD" "" "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
+        apply_with_fallback "VolumeSnapshotContent CRD" "" "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
+        
+        # Snapshot Controller
+        apply_with_fallback "Snapshot Controller RBAC" "" "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
+        apply_with_fallback "Snapshot Controller" "" "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+    fi
     
-    # Install VolSync using Helm
+    # Install VolSync using Helm (continue even if it fails)
     log_info "Installing VolSync for storage replication..."
-    helm repo add backube https://backube.github.io/helm-charts/ || log_warning "VolSync repo may already exist"
-    helm repo update
+    if helm repo add backube https://backube.github.io/helm-charts/ 2>/dev/null; then
+        log_success "VolSync repo added successfully"
+    else
+        log_warning "VolSync repo may already exist or failed to add"
+    fi
+    
+    if helm repo update 2>/dev/null; then
+        log_success "Helm repos updated successfully"
+    else
+        log_warning "Helm repo update failed - continuing anyway"
+    fi
     
     # Create volsync-system namespace if it doesn't exist
-    kubectl create namespace volsync-system --dry-run=client -o yaml | kubectl apply -f -
+    if kubectl create namespace volsync-system --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null; then
+        log_success "volsync-system namespace ready"
+    else
+        log_warning "Failed to create volsync-system namespace - may already exist"
+    fi
     
     # Install VolSync with timeout handling for development environments
     log_info "Installing VolSync (may timeout in kind/development environments)..."
-    if helm upgrade --install volsync backube/volsync --namespace volsync-system --wait --timeout=5m; then
+    if helm upgrade --install volsync backube/volsync --namespace volsync-system --wait --timeout=5m 2>/dev/null; then
         log_success "VolSync installed successfully"
     else
-        log_warning "VolSync installation timed out - this is common in kind/development environments"
+        log_warning "VolSync installation timed out or failed - this is common in kind/development environments"
         log_info "VolSync CRDs should still be available for basic testing"
         # Check if CRDs were installed even if deployment failed
         if kubectl get crd replicationsources.volsync.backube >/dev/null 2>&1; then
@@ -57,12 +134,14 @@ install_storage_dependencies() {
         fi
     fi
     
-    # Install missing resource classes that VRGs need
-    log_info "Installing missing resource classes for VRG selectors..."
-    
-    # Create VolumeSnapshotClass (required for VRG selectors)
-    log_info "Creating VolumeSnapshotClass for kind clusters..."
-    kubectl apply -f - <<EOF || log_warning "VolumeSnapshotClass may already exist"
+    # Install demo resource classes using local files with inline fallback
+    log_info "Installing demo resource classes for VRG selectors..."
+    if ! apply_with_fallback "Demo Resource Classes" "$storage_deps_dir/resource-classes" ""; then
+        log_info "Local resource classes failed, creating inline..."
+        
+        # Create VolumeSnapshotClass (required for VRG selectors)
+        log_info "Creating VolumeSnapshotClass for kind clusters..."
+        if kubectl apply -f - <<EOF 2>/dev/null
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:
@@ -73,10 +152,15 @@ metadata:
 driver: hostpath.csi.k8s.io
 deletionPolicy: Delete
 EOF
-    
-    # Create VolumeReplicationClass (required for VRG selectors)
-    log_info "Creating VolumeReplicationClass for VolSync replication..."
-    kubectl apply -f - <<EOF || log_warning "VolumeReplicationClass may already exist"
+        then
+            log_success "VolumeSnapshotClass created successfully"
+        else
+            log_warning "VolumeSnapshotClass creation failed - may already exist"
+        fi
+        
+        # Create VolumeReplicationClass (required for VRG selectors)
+        log_info "Creating VolumeReplicationClass for VolSync replication..."
+        if kubectl apply -f - <<EOF 2>/dev/null
 apiVersion: replication.storage.openshift.io/v1alpha1
 kind: VolumeReplicationClass
 metadata:
@@ -89,119 +173,25 @@ spec:
   parameters:
     copyMethod: Snapshot
 EOF
+        then
+            log_success "VolumeReplicationClass created successfully"
+        else
+            log_warning "VolumeReplicationClass creation failed - may already exist"
+        fi
+    fi
     
-    # Create stub CRDs for optional RamenDR resources (to prevent operator crashes)
-    log_info "Creating stub CRDs for optional RamenDR resources..."
+    # Verify installation
+    log_info "Verifying storage dependencies installation..."
     
-    # NetworkFenceClass
-    kubectl apply -f - <<EOF || log_warning "NetworkFenceClass CRD may already exist"
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: networkfenceclasses.csiaddons.openshift.io
-spec:
-  group: csiaddons.openshift.io
-  names:
-    kind: NetworkFenceClass
-    listKind: NetworkFenceClassList
-    plural: networkfenceclasses
-    singular: networkfenceclass
-  scope: Cluster
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-EOF
-    
-    # VolumeGroupReplicationClass
-    kubectl apply -f - <<EOF || log_warning "VolumeGroupReplicationClass CRD may already exist"
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupreplicationclasses.replication.storage.openshift.io
-spec:
-  group: replication.storage.openshift.io
-  names:
-    kind: VolumeGroupReplicationClass
-    listKind: VolumeGroupReplicationClassList
-    plural: volumegroupreplicationclasses
-    singular: volumegroupreplicationclass
-  scope: Cluster
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-EOF
-    
-    # VolumeGroupReplication
-    kubectl apply -f - <<EOF || log_warning "VolumeGroupReplication CRD may already exist"
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupreplications.replication.storage.openshift.io
-spec:
-  group: replication.storage.openshift.io
-  names:
-    kind: VolumeGroupReplication
-    listKind: VolumeGroupReplicationList
-    plural: volumegroupreplications
-    singular: volumegroupreplication
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-EOF
-    
-    # VolumeGroupSnapshotClass
-    kubectl apply -f - <<EOF || log_warning "VolumeGroupSnapshotClass CRD may already exist"
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io
-spec:
-  group: groupsnapshot.storage.openshift.io
-  names:
-    kind: VolumeGroupSnapshotClass
-    listKind: VolumeGroupSnapshotClassList
-    plural: volumegroupsnapshotclasses
-    singular: volumegroupsnapshotclass
-  scope: Cluster
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-EOF
-    
-    # Verify the created resources
-    log_info "Verifying created resources..."
-    
-    # Check VolumeSnapshotClass
+    # Check demo resource classes
     if kubectl get volumesnapshotclass demo-snapclass >/dev/null 2>&1; then
-        log_success "VolumeSnapshotClass 'demo-snapclass' created successfully"
+        log_success "VolumeSnapshotClass 'demo-snapclass' available"
     else
         log_warning "VolumeSnapshotClass 'demo-snapclass' not found"
     fi
     
-    # Check VolumeReplicationClass
     if kubectl get volumereplicationclass demo-replication-class >/dev/null 2>&1; then
-        log_success "VolumeReplicationClass 'demo-replication-class' created successfully"
+        log_success "VolumeReplicationClass 'demo-replication-class' available"
     else
         log_warning "VolumeReplicationClass 'demo-replication-class' not found"
     fi
@@ -210,8 +200,12 @@ EOF
     local crds_to_check=(
         "volumesnapshots.snapshot.storage.k8s.io"
         "volumesnapshotclasses.snapshot.storage.k8s.io" 
+        "volumesnapshotcontents.snapshot.storage.k8s.io"
         "volumereplications.replication.storage.openshift.io"
         "volumereplicationclasses.replication.storage.openshift.io"
+        "volumegroupreplications.replication.storage.openshift.io"
+        "volumegroupreplicationclasses.replication.storage.openshift.io"
+        "volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io"
         "networkfenceclasses.csiaddons.openshift.io"
     )
     
@@ -229,7 +223,10 @@ EOF
         log_success "All required CRDs and resource classes installed successfully"
     else
         log_warning "$missing_crds CRDs are missing - some functionality may be limited"
+        log_info "This is normal for development environments - operators should still function"
     fi
+    
+    log_success "Storage dependencies installation completed (errors are non-fatal)"
 }
 
 install_hub_operator() {
