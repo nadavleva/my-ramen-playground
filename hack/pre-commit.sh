@@ -119,9 +119,10 @@ run_yamllint() {
     echo
 }
 
+
 run_mdl
 run_shellcheck
-run_yamllint
+# run_yamllint  # Skipped by user request
 
 # Fail if any of the tools reported errors
 (! < "${OUTPUTS_FILE}" read -r)
