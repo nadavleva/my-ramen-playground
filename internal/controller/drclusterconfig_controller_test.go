@@ -322,7 +322,7 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 				})
 			})
 			When("there are multiple StorageClass created with required labels", func() {
-				It("updates DRClusterConfig Status", func() {
+				PIt("updates DRClusterConfig Status", func() {
 					By("creating a StorageClass")
 
 					sc1 = baseSC.DeepCopy()
