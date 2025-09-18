@@ -100,7 +100,7 @@ run_yamllint() {
 
     # Debug: Show what files we're processing
     echo "Files found:"
-    get_files '.*\.ya?ml' | grep -v -E "(vendor/|demo/|testbin/|third_party/|\.git/)" 2>/dev/null | while IFS= read -r -d '' file; do
+    get_files '.*\.ya?ml' | grep -v -E "(^|/)(vendor|demo|testbin|third_party|\\.git)/" 2>/dev/null | while IFS= read -r -d '' file; do
         if [ -f "$file" ]; then
             echo "Processing: $file"
         fi
@@ -108,7 +108,7 @@ run_yamllint() {
     
     # Run yamllint and capture exit code
     local exit_code=0
-    get_files '.*\.ya?ml' | grep -v -E "(vendor/|demo/|testbin/|third_party/|\.git/)" 2>/dev/null | while IFS= read -r -d '' file; do
+    get_files '.*\.ya?ml' | grep -v -E "(^|/)(vendor|demo|testbin|third_party|\\.git)/" 2>/dev/null | while IFS= read -r -d '' file; do
         if [ -f "$file" ]; then
             echo "$file"
         fi
