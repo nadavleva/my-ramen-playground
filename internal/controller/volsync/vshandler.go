@@ -717,6 +717,7 @@ func (v *VSHandler) createTmpPVCForFinalSync(pvcNamespacedName types.NamespacedN
 		tmpPVC.ObjectMeta.Labels = map[string]string{} // don't include it in the next reconciliation
 		tmpPVC.Finalizers = nil
 		tmpPVC.Annotations = map[string]string{} // {"ramendr/tmp-pvc-created": "yes"}
+		util.AddLabel(tmpPVC, util.CreatedByRamenLabel, "true")
 	} else {
 		v.log.V(1).Info("Found tmp PVC", "tmpPVC", tmpPVC.Name)
 
@@ -1049,8 +1050,17 @@ func (v *VSHandler) CopySecretToPVCNamespace(secretName, namespace string) error
 	}
 
 	if err == nil {
-		v.log.Info("Secret already exists in the PVC namespace", "secretName", secretName, "pvcNamespace",
-			namespace)
+		util.AddLabel(secret, util.CreatedByRamenLabel, "true")
+		util.AddLabel(secret, util.ExcludeFromVeleroBackup, "true")
+
+		if err := v.client.Update(v.ctx, secret); err != nil {
+			v.log.Error(err, "Failed to update existing secret with ramen labels", "secretName", secretName)
+
+			return fmt.Errorf("error updating existing secret with ramen labels (%w)", err)
+		}
+
+		v.log.Info("Secret already exists in the PVC namespace and updated with ramen labels",
+			"secretName", secretName, "pvcNamespace", namespace)
 
 		return nil
 	}
@@ -1075,6 +1085,10 @@ func (v *VSHandler) CopySecretToPVCNamespace(secretName, namespace string) error
 		Labels:      secret.Labels,
 		Annotations: secret.Annotations,
 	}
+
+	// Ensure the copied secret has ramen labels for velero exclusion
+	util.AddLabel(secretCopy, util.CreatedByRamenLabel, "true")
+	util.AddLabel(secretCopy, util.ExcludeFromVeleroBackup, "true")
 
 	err = v.client.Create(v.ctx, secretCopy)
 	if err != nil {
@@ -1329,6 +1343,10 @@ func (v *VSHandler) ReconcileServiceExportForRD(rd *volsyncv1alpha1.ReplicationD
 	})
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, svcExport, func() error {
+		// Add ramen labels to ensure this ServiceExport is excluded from velero backups
+		util.AddLabel(svcExport, util.CreatedByRamenLabel, "true")
+		util.AddLabel(svcExport, util.ExcludeFromVeleroBackup, "true")
+
 		// Make this ServiceExport owned by the replication destination itself rather than the VRG
 		// This way on relocate scenarios or failover/failback, when the RD is cleaned up the associated
 		// ServiceExport will get cleaned up with it.
@@ -1457,8 +1475,6 @@ func (v *VSHandler) EnsurePVCforDirectCopy(ctx context.Context,
 			Namespace: rdSpec.ProtectedPVC.Namespace,
 		},
 	}
-
-	util.AddLabel(pvc, util.CreatedByRamenLabel, "true")
 
 	op, err := ctrlutil.CreateOrUpdate(ctx, v.client, pvc, func() error {
 		if !v.vrgInAdminNamespace {
