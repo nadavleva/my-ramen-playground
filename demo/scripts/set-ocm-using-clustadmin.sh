@@ -131,9 +131,9 @@ for ctx in "${DR_CONTEXTS[@]}"; do
     clusteradm join --hub-token $HUB_TOKEN --hub-apiserver $HUB_SERVER --wait --cluster-name $ctx
 
     log_success "✅ Joined cluster $ctx to hub"
-    # log_info "Allowing hub to accept the cluster..."
-    # kubectl config use-context $HUB_CONTEXT
-    # clusteradm accept --clusters $ctx
+    log_info "Allowing hub to accept the cluster..."
+    kubectl config use-context $HUB_CONTEXT
+    clusteradm accept --clusters $ctx
 done
 
 echo ""
