@@ -1,0 +1,39 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumereplications.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  scope: Namespaced
+  names:
+    plural: volumereplications
+    singular: volumereplication
+    kind: VolumeReplication
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: volumereplicationclasses.replication.storage.openshift.io
+spec:
+  group: replication.storage.openshift.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  scope: Cluster
+  names:
+    plural: volumereplicationclasses
+    singular: volumereplicationclass
+    kind: VolumeReplicationClass

@@ -4,6 +4,7 @@
 
 # DRPlacementControl for nginx-test application
 # This tells RamenDR to protect the nginx-test namespace and creates VRGs
+# Updated to use Placement (v1beta1) instead of legacy PlacementRule
 
 apiVersion: ramendr.openshift.io/v1alpha1
 kind: DRPlacementControl
@@ -13,21 +14,26 @@ metadata:
   labels:
     app: nginx-test
 spec:
-  # Reference to the DRPolicy we created
+  # Reference to the DRPolicy we created (from setup-dr-policy.sh)
   drPolicyRef:
     name: ramen-dr-policy
-    namespace: ramen-system
 
-  # Which cluster should be primary (where app runs)
+  # Reference to Placement (updated from PlacementRule)
+  placementRef:
+    kind: Placement  # Changed from PlacementRule
+    name: dr-primary-placement  # Matches dr-primary-placement.yaml in dr-policy/
+    namespace: nginx-test
+
+  # Which cluster should be primary (where app runs initially)
   preferredCluster: ramen-dr1
 
   # Which cluster to failover to
   failoverCluster: ramen-dr2
 
-  # PVC selector - which PVCs to protect
+  # PVC selector - which PVCs to protect (matches labels in nginx-with-pvc.yaml)
   pvcSelector:
     matchLabels:
       app: nginx-test
 
-  # Protection mode
-  replicationState: primary
+  # Action to take (can be 'Relocate' for failover or 'Failover' for permanent switch)
+  action: Relocate

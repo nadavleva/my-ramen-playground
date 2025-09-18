@@ -1,0 +1,10 @@
+apiVersion: apps.open-cluster-management.io/v1
+kind: PlacementRule
+metadata:
+  name: dr-any-placement
+  namespace: nginx-test
+  labels:
+    app.kubernetes.io/name: ramen-demo
+    app.kubernetes.io/component: placement
+spec:
+  clusterSelector: {}

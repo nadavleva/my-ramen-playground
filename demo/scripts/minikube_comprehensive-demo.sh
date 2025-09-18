@@ -628,37 +628,37 @@ EOF
     # Create PlacementRule and DRPC on hub
     kubectl --context="$HUB_PROFILE" create namespace nginx-demo --dry-run=client -o yaml | kubectl --context="$HUB_PROFILE" apply -f -
     
-    kubectl --context="$HUB_PROFILE" apply -f - <<EOF
-apiVersion: apps.open-cluster-management.io/v1
-kind: PlacementRule
-metadata:
-  name: nginx-demo-placement
-  namespace: nginx-demo
-spec:
-  clusterSelector:
-    matchLabels:
-      cluster.open-cluster-management.io/clusterset: default
-  clusterReplicas: 1
-  schedulerName: ramen
----
-apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRPlacementControl
-metadata:
-  name: nginx-demo-drpc
-  namespace: nginx-demo
-spec:
-  placementRef:
-    name: nginx-demo-placement
-    namespace: nginx-demo
-  drPolicyRef:
-    name: nginx-demo-policy
-    namespace: ramen-system
-  pvcSelector:
-    matchLabels:
-      app: nginx-demo
-  preferredCluster: ramen-dr1
-  action: Relocate
-EOF
+#     kubectl --context="$HUB_PROFILE" apply -f - <<EOF
+# apiVersion: apps.open-cluster-management.io/v1
+# kind: PlacementRule
+# metadata:
+#   name: nginx-demo-placement
+#   namespace: nginx-demo
+# spec:
+#   clusterSelector:
+#     matchLabels:
+#       cluster.open-cluster-management.io/clusterset: default
+#   clusterReplicas: 1
+#   schedulerName: ramen
+# ---
+# apiVersion: ramendr.openshift.io/v1alpha1
+# kind: DRPlacementControl
+# metadata:
+#   name: nginx-demo-drpc
+#   namespace: nginx-demo
+# spec:
+#   placementRef:
+#     name: nginx-demo-placement
+#     namespace: nginx-demo
+#   drPolicyRef:
+#     name: nginx-demo-policy
+#     namespace: ramen-system
+#   pvcSelector:
+#     matchLabels:PlacementRule
+#       app: nginx-demo
+#   preferredCluster: ramen-dr1
+#   action: Relocate
+# EOF
 fi
 
 echo ""
