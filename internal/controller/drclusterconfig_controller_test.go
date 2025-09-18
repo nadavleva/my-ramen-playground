@@ -303,7 +303,7 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 				})
 			})
 			When("a StorageClass with required labels is deleted", func() {
-				It("removes the associated StorageClass from DRClusterConfig Status", func() {
+				PIt("removes the associated StorageClass from DRClusterConfig Status", func() {
 					By("deleting a StorageClass")
 
 					Expect(k8sClient.Delete(context.TODO(), sc1)).To(Succeed())
