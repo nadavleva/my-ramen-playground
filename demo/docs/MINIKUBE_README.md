@@ -14,6 +14,12 @@ sudo install minikube-linux-amd64 /usr/local/bin/minikube
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install kubectl /usr/local/bin/kubectl
 
+# Install clusteradm (for OCM setup)
+curl -LO https://github.com/open-cluster-management-io/clusteradm/releases/download/v0.9.0/clusteradm_linux_amd64.tar.gz
+tar -xzf clusteradm_linux_amd64.tar.gz
+sudo install clusteradm /usr/local/bin/clusteradm
+
+
 # Install Docker (for minikube driver)
 sudo apt update && sudo apt install -y docker.io
 sudo usermod -aG docker $USER
@@ -73,7 +79,7 @@ echo $KUBECONFIG  # Should be empty
 
 ## 🚀 **Quick Start**
 
-### **Option 1: Automated Setup (Recommended)**
+### **Option 1: Automated Setup (Not Recommended - need to validate with the ocm setup)**
 ```bash
 # Complete automated demo with minikube
 ./scripts/fresh-demo-minikube.sh
@@ -82,40 +88,82 @@ echo $KUBECONFIG  # Should be empty
 ### **Option 2: Manual Step-by-Step Setup**
 ```bash
 # 0. Clean existing environment (if needed)
-./scripts/cleanup-all.sh
+./demo/scripts/cleanup-all.sh
 # Or remove clusters directly:
 minikube delete -p ramen-hub
 minikube delete -p ramen-dr1
 minikube delete -p ramen-dr2
+# Remove context
+kubectl config delete-context ramen-hub
+kubectl config delete-context ramen-dr1
+kubectl config delete-context ramen-dr2
 
 # 1. Setup minikube clusters
 ./demo/scripts/minikube_setup.sh
 
-# 2. Install RamenDR operators
-echo "3" | ./demo/scripts/minikube_quick-install.sh
-
-# 3. Setup OCM resources (CRITICAL)
+# 2. Setup OCM resources (CRITICAL) - using clusteradm
+./demo/scripts/set-ocm-using-clustadmin.sh
 ./demo/scripts/setup-ocm-resources.sh
 
-# 4. Verify OCM setup
+# 3. Install RamenDR operators
+echo "3" | ./demo/scripts/minikube_quick-install.sh
+
+# Verify OCM setup
 # Check that cluster-manager exists ONLY on hub
 kubectl --context=ramen-hub -n open-cluster-management get deployment
 # Check ManagedCluster status
 kubectl --context=ramen-hub get managedcluster
 
-# 5. Deploy S3 storage
+# 3. Install storage dependencies (VolSync, Velero CRDs)
+./demo/scripts/install-storage-dependencies.sh
+./demo/scripts/install-missing-resource-classes.sh
+
+# 4. Install RamenDR operators
+echo "3" | ./demo/scripts/minikube_quick-install.sh
+
+# 5. Create DR Policy and Placement Resources
+./demo/scripts/setup-dr-policy.sh
+
+# 6. Deploy S3 storage 
 ./demo/scripts/deploy-ramendr-s3.sh
 
-# 6. Setup cross-cluster access
-./scripts/setup-cross-cluster-s3.sh
+# 7. Setup cross-cluster access
+./demo/scripts/setup-cross-cluster-s3.sh
 
-# 7. Verify S3 access
+# 8. Verify S3 access
 # Test MinIO access from DR clusters
 HOST_IP=$(minikube -p ramen-hub ip)
 kubectl --context=ramen-dr1 run test-minio --image=minio/mc --rm -i --restart=Never -- \
     /bin/sh -c "mc alias set myminio http://${HOST_IP}:30900 minioadmin minioadmin && mc ls myminio/ramen-metadata/"
 
-# 8. Run failover demo
+# 9. Create test application (Choose your approach)
+
+# Approach A: Direct VRG (Simple - same as KIND demo)
+```bash
+# Deploy nginx application with PVC
+kubectl --context=ramen-dr1 apply -f demo/yaml/test-application/nginx-with-pvc-fixed.yaml
+
+# Create VRG to protect the application  
+kubectl --context=ramen-dr1 apply -f demo/yaml/test-application/nginx-vrg-correct.yaml
+
+# Verify VRG creation
+kubectl --context=ramen-dr1 get vrg -n test-app
+```
+
+## Approach B: DRPlacement (Advanced - OCM managed)
+```bash
+# Uses OCM for automated placement management
+./demo/scripts/setup-test-app-drpc.sh
+
+# Verify DRPC creation
+kubectl --context=ramen-hub get drplacementcontrol -n test-app
+```
+
+**Which to choose?**
+- **Approach A**: Simpler, direct control, same as KIND demo
+- **Approach B**: Production-like, automated placement, requires OCM
+
+# 10. Run failover demo
 ./demo/scripts/minikube_demo-failover.sh
 ```
 

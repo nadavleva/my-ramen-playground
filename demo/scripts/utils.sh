@@ -91,3 +91,461 @@ check_cluster_manager_placement() {
         fi
     done
 }
+
+# ========================================
+# NEW UTILITY FUNCTIONS FOR RAMEN SCRIPTS
+# ========================================
+
+# Utility function to ensure namespace exists and is ready
+ensure_namespace() {
+    local context="$1"
+    local namespace="$2"
+    local timeout="${3:-60}"
+    
+    log_info "Ensuring namespace '$namespace' exists on context '$context'..."
+    
+    # Create namespace (idempotent)
+    kubectl --context="$context" create namespace "$namespace" --dry-run=client -o yaml | kubectl --context="$context" apply -f - >/dev/null
+    
+    # Check status directly instead of using problematic wait
+    local max_attempts=$((timeout / 5))
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        local status=$(kubectl --context="$context" get namespace "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+        
+        if [ "$status" = "Active" ]; then
+            log_success "Namespace '$namespace' is ready on '$context'"
+            return 0
+        fi
+        
+        if [ $attempts -eq 0 ]; then
+            log_info "Waiting for namespace '$namespace' to become active..."
+        fi
+        
+        sleep 5
+        ((attempts++))
+    done
+    
+    log_error "Namespace '$namespace' failed to become Active within ${timeout}s on '$context'"
+    return 1
+}
+
+# Utility function to ensure resource exists with retry
+ensure_resource() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    local timeout="${5:-60}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    log_info "Checking resource '$resource_type/$resource_name' on context '$context'..."
+    
+    local max_attempts=$((timeout / 5))
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        if kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
+            log_success "Resource '$resource_type/$resource_name' exists on '$context'"
+            return 0
+        fi
+        
+        if [ $attempts -eq 0 ]; then
+            log_info "Waiting for resource '$resource_type/$resource_name'..."
+        fi
+        
+        sleep 5
+        ((attempts++))
+    done
+    
+    log_error "Resource '$resource_type/$resource_name' not found within ${timeout}s on '$context'"
+    return 1
+}
+
+# Utility function to wait for deployment to be ready
+wait_for_deployment() {
+    local context="$1"
+    local deployment="$2"
+    local namespace="$3"
+    local timeout="${4:-300}"
+    
+    log_info "Waiting for deployment '$deployment' to be ready on '$context'..."
+    
+    # First check if deployment exists
+    if ! kubectl --context="$context" get deployment "$deployment" -n "$namespace" >/dev/null 2>&1; then
+        log_error "Deployment '$deployment' not found in namespace '$namespace' on '$context'"
+        return 1
+    fi
+    
+    # Use kubectl wait for deployments (more reliable than custom wait)
+    if kubectl --context="$context" wait --for=condition=available --timeout="${timeout}s" deployment/"$deployment" -n "$namespace" >/dev/null 2>&1; then
+        log_success "Deployment '$deployment' is ready on '$context'"
+        return 0
+    else
+        log_error "Deployment '$deployment' failed to become ready within ${timeout}s on '$context'"
+        
+        # Show debug info
+        log_info "Debug information for '$deployment':"
+        kubectl --context="$context" describe deployment "$deployment" -n "$namespace" | tail -10
+        kubectl --context="$context" get pods -n "$namespace" -l app="$deployment" --no-headers 2>/dev/null | head -3
+        return 1
+    fi
+}
+
+# Utility function to apply CRD with error handling
+apply_crd_safe() {
+    local context="$1"
+    local crd_name="$2"
+    local crd_yaml="$3"
+    
+    log_info "Applying CRD '$crd_name' on context '$context'..."
+    
+    if echo "$crd_yaml" | kubectl --context="$context" apply -f - >/dev/null 2>&1; then
+        log_success "CRD '$crd_name' applied successfully"
+        return 0
+    else
+        # Check if it already exists
+        if kubectl --context="$context" get crd "$crd_name" >/dev/null 2>&1; then
+            log_info "CRD '$crd_name' already exists, continuing..."
+            return 0
+        else
+            log_error "CRD '$crd_name' application failed"
+            return 1
+        fi
+    fi
+}
+
+# Utility function to apply YAML from URL with retry
+apply_url_safe() {
+    local context="$1"
+    local url="$2"
+    local description="${3:-resource}"
+    local retries="${4:-3}"
+    
+    log_info "Applying $description from URL..."
+    
+    local attempt=1
+    while [ $attempt -le $retries ]; do
+        if kubectl --context="$context" apply -f "$url" >/dev/null 2>&1; then
+            log_success "$description applied successfully"
+            return 0
+        else
+            if [ $attempt -lt $retries ]; then
+                log_warning "$description application failed (attempt $attempt/$retries), retrying..."
+                sleep 2
+            else
+                log_warning "$description application failed after $retries attempts (may already exist)"
+                return 0  # Don't fail the script for this
+            fi
+        fi
+        ((attempt++))
+    done
+}
+
+# Utility function to build and load image for minikube
+build_and_load_image() {
+    local profile="$1"
+    local image_name="${2:-quay.io/ramendr/ramen-operator:latest}"
+
+    log_info "Building and loading operator image for profile: $profile..."
+    log_info "Building operator image for $profile using Docker..."
+    docker build -t "$image_name" .
+    log_info "Loading image into minikube profile $profile..."
+    minikube image load "$image_name" -p "$profile"
+    log_success "Image built and loaded into $profile"
+    return 0
+}
+
+# Utility function to check required tools
+check_required_tools() {
+    local tools=("$@")
+    local missing_tools=()
+    
+    for tool in "${tools[@]}"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing_tools+=("$tool")
+        fi
+    done
+    
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        log_error "Missing required tools: ${missing_tools[*]}"
+        log_info "Please install the missing tools and try again"
+        return 1
+    fi
+    
+    log_success "All required tools are available"
+    return 0
+}
+
+# Utility function to get available contexts matching pattern
+get_contexts_matching() {
+    local pattern="$1"
+    kubectl config get-contexts -o name 2>/dev/null | grep "^${pattern}" || true
+}
+
+# Utility function to check if context exists
+context_exists() {
+    local context="$1"
+    kubectl config get-contexts "$context" >/dev/null 2>&1
+}
+
+# Utility function to switch context safely
+switch_context() {
+    local context="$1"
+    
+    if context_exists "$context"; then
+        kubectl config use-context "$context" >/dev/null
+        log_info "Switched to context: $context"
+        return 0
+    else
+        log_error "Context '$context' not found"
+        return 1
+    fi
+}
+
+# Utility function to create resource from inline YAML
+create_resource() {
+    local context="$1"
+    local namespace="$2"
+    local yaml_content="$3"
+    local description="${4:-resource}"
+    
+    log_info "Creating $description in namespace '$namespace'..."
+    
+    local ns_flag=""
+    if [ -n "$namespace" ] && [ "$namespace" != "cluster-scoped" ]; then
+        ns_flag="--namespace=$namespace"
+    fi
+    
+    if echo "$yaml_content" | kubectl --context="$context" apply $ns_flag -f - >/dev/null 2>&1; then
+        log_success "$description created successfully"
+        return 0
+    else
+        log_warning "$description creation failed (may already exist)"
+        return 0  # Don't fail script for existing resources
+    fi
+}
+
+# Utility function to wait for condition with custom check
+wait_for_condition() {
+    local context="$1"
+    local check_command="$2"
+    local description="$3"
+    local timeout="${4:-60}"
+    local interval="${5:-5}"
+    
+    log_info "Waiting for $description..."
+    
+    local max_attempts=$((timeout / interval))
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        if eval "kubectl --context='$context' $check_command" >/dev/null 2>&1; then
+            log_success "$description is ready"
+            return 0
+        fi
+        
+        sleep $interval
+        ((attempts++))
+        
+        if [ $((attempts % 6)) -eq 0 ]; then  # Log every 30 seconds
+            log_info "Still waiting for $description... (${attempts}/${max_attempts})"
+        fi
+    done
+    
+    log_error "$description not ready within ${timeout}s"
+    return 1
+}
+
+# Utility function to verify installation
+verify_deployment() {
+    local context="$1"
+    local deployment="$2"
+    local namespace="$3"
+    local description="${4:-deployment}"
+    
+    if kubectl --context="$context" get deployment "$deployment" -n "$namespace" >/dev/null 2>&1; then
+        local ready=$(kubectl --context="$context" get deployment "$deployment" -n "$namespace" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        local desired=$(kubectl --context="$context" get deployment "$deployment" -n "$namespace" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+        
+        if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+            log_success "✅ $description deployed and ready ($ready/$desired)"
+            return 0
+        else
+            log_warning "⚠️  $description deployed but not ready ($ready/$desired)"
+            return 1
+        fi
+    else
+        log_error "❌ $description not found"
+        return 1
+    fi
+}
+
+# Add this function to utils.sh:
+apply_yaml_file_safe() {
+    local context="$1"
+    local yaml_file="$2"
+    local description="${3:-resource}"
+    
+    if [ -f "$yaml_file" ]; then
+        log_info "Applying $description from file: $yaml_file"
+        if kubectl --context="$context" apply -f "$yaml_file"; then
+            log_success "$description applied successfully"
+            return 0
+        else
+            log_warning "$description may already exist or failed to apply"
+            return 1
+        fi
+    else
+        log_warning "$description file not found: $yaml_file"
+        return 1
+    fi
+}
+
+# Add this function to utils.sh:
+apply_yaml_with_namespace() {
+    local context="$1"
+    local yaml_file="$2"
+    local target_namespace="$3"
+    local description="${4:-resource}"
+    
+    if [ -f "$yaml_file" ]; then
+        log_info "Applying $description from file: $yaml_file (namespace: $target_namespace)"
+        
+        # Use kubectl apply with namespace override
+        if kubectl --context="$context" apply -f "$yaml_file" -n "$target_namespace"; then
+            log_success "$description applied successfully"
+            return 0
+        else
+            log_warning "$description may already exist or failed to apply"
+            return 1
+        fi
+    else
+        log_warning "$description file not found: $yaml_file"
+        return 1
+    fi
+}
+
+# Add function to label ManagedClusters safely
+label_managedcluster() {
+    local context="$1"
+    local cluster_name="$2"
+    local label_key="$3"
+    local label_value="$4"
+    
+    log_info "Adding label $label_key=$label_value to ManagedCluster $cluster_name..."
+    
+    if kubectl --context="$context" label managedcluster "$cluster_name" "$label_key=$label_value" --overwrite >/dev/null 2>&1; then
+        log_success "Label added to ManagedCluster $cluster_name"
+        return 0
+    else
+        log_warning "Failed to add label to ManagedCluster $cluster_name (may not exist)"
+        return 1
+    fi
+}
+
+# Add function to apply CRD if missing
+apply_crd_if_missing() {
+    local context="$1"
+    local crd_name="$2"
+    local crd_url="$3"
+    
+    if ! kubectl get crd "$crd_name" >/dev/null 2>&1; then
+        log_info "Applying missing CRD: $crd_name"
+        kubectl --context="$context" apply -f "$crd_url"
+    else
+        log_info "CRD already exists: $crd_name"
+    fi
+}
+# Add to utils.sh
+get_object_yaml() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag -o yaml 2>/dev/null
+}
+
+
+# get_object_yaml - Retrieve a Kubernetes object in YAML format
+get_object_yaml() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag -o yaml 2>/dev/null
+}
+
+# Utility function to safely delete a resource, handling finalizers
+safe_delete() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    local timeout="${5:-60}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    log_info "Checking if resource '$resource_type/$resource_name' exists on '$context'..."
+    
+    # Check if resource exists using get_object_yaml
+    local yaml_output=$(get_object_yaml "$context" "$resource_type" "$resource_name" "$namespace")
+    if [ -z "$yaml_output" ]; then
+        log_info "Resource '$resource_type/$resource_name' does not exist, skipping deletion."
+        return 0
+    fi
+    
+    log_info "Resource exists, checking for finalizers..."
+    
+    # Check for finalizers
+    local finalizers=$(echo "$yaml_output" | yq eval '.metadata.finalizers // []' - 2>/dev/null || echo "[]")
+    if [ "$finalizers" != "[]" ] && [ "$finalizers" != "null" ]; then
+        log_warning "Resource has finalizers: $finalizers. Removing them..."
+        # Patch to remove finalizers
+        kubectl --context="$context" patch "$resource_type" "$resource_name" $ns_flag --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' >/dev/null 2>&1 || log_warning "Failed to remove finalizers, proceeding with deletion."
+    fi
+    
+    # Delete the resource
+    log_info "Deleting resource '$resource_type/$resource_name'..."
+    if kubectl --context="$context" delete "$resource_type" "$resource_name" $ns_flag --ignore-not-found=true >/dev/null 2>&1; then
+        log_info "Deletion initiated, waiting for confirmation..."
+        
+        # Wait for deletion
+        local max_attempts=$((timeout / 5))
+        local attempts=0
+        while [ $attempts -lt $max_attempts ]; do
+            if ! kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
+                log_success "Resource '$resource_type/$resource_name' deleted successfully."
+                return 0
+            fi
+            sleep 5
+            ((attempts++))
+        done
+        
+        log_warning "Resource '$resource_type/$resource_name' deletion timed out, but may still be in progress."
+        return 0
+    else
+        log_error "Failed to delete resource '$resource_type/$resource_name'."
+        return 1
+    fi
+}

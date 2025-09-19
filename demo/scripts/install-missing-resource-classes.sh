@@ -15,170 +15,118 @@ log_info "🔧 Installing missing resource classes for RamenDR demo"
 echo "================================================================"
 echo ""
 
-# Function to create VolumeSnapshotClass that matches VRG selector
-create_volume_snapshot_class() {
-    log_info "📸 Creating VolumeSnapshotClass for kind clusters..."
+# Function to apply YAML file safely
+# Function to apply YAML file safely with built-in existence check
+apply_yaml_file() {
+    local yaml_file="$1"
+    local description="$2"
     
-    cat <<EOF | kubectl apply -f -
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshotClass
-metadata:
-  name: demo-snapclass
-  labels:
-    velero.io/csi-volumesnapshot-class: "true"
-    app.kubernetes.io/name: ramen-demo
-driver: hostpath.csi.k8s.io
-deletionPolicy: Delete
-parameters:
-  # Parameters for hostpath CSI driver in kind
-  csi.storage.k8s.io/snapshotter-secret-name: ""
-  csi.storage.k8s.io/snapshotter-secret-namespace: ""
-EOF
-    
-    log_success "VolumeSnapshotClass created with velero.io/csi-volumesnapshot-class=true label"
+    if [ -f "$yaml_file" ]; then
+        log_info "Applying $description from file: $yaml_file"
+        if kubectl apply -f "$yaml_file"; then
+            log_success "$description applied successfully"
+            return 0
+        else
+            log_warning "$description may already exist or failed to apply"
+            return 1
+        fi
+    else
+        log_warning "$description file not found: $yaml_file"
+        return 1
+    fi
 }
 
-# Function to create VolumeReplicationClass that matches VRG selector  
+# Function to try multiple file locations
+apply_yaml_file_multi() {
+    local description="$1"
+    shift  # Remove first argument, rest are file paths
+    local files=("$@")
+    
+    for yaml_file in "${files[@]}"; do
+        if apply_yaml_file "$yaml_file" "$description"; then
+            return 0
+        fi
+    done
+    
+    log_error "No valid file found for $description in any of the specified locations"
+    return 1
+}
+
+# Function to create VolumeSnapshotClass
+create_volume_snapshot_class() {
+    log_info "📸 Creating VolumeSnapshotClass for minikube clusters..."
+    
+    local yaml_file="$SCRIPT_DIR/../yaml/resource-classes/volume-snapshot-class.yaml"
+    apply_yaml_file "$yaml_file" "VolumeSnapshotClass"
+}
+
+# Function to create VolumeReplicationClass
 create_volume_replication_class() {
     log_info "🔄 Creating VolumeReplicationClass for VolSync replication..."
     
-    cat <<EOF | kubectl apply -f -
-apiVersion: replication.storage.openshift.io/v1alpha1
-kind: VolumeReplicationClass
-metadata:
-  name: demo-replication-class
-  labels:
-    ramendr.openshift.io/replicationID: ramen-volsync
-    app.kubernetes.io/name: ramen-demo
-spec:
-  provisioner: hostpath.csi.k8s.io
-  parameters:
-    replication.storage.openshift.io/replication-secret-name: ""
-    replication.storage.openshift.io/replication-secret-namespace: ""
-    # VolSync-specific parameters for kind clusters
-    copyMethod: Snapshot
-    capacity: 1Gi
-EOF
-    
-    log_success "VolumeReplicationClass created with ramendr.openshift.io/replicationID=ramen-volsync label"
+    local yaml_file="$SCRIPT_DIR/../yaml/resource-classes/volume-replication-class.yaml"
+    apply_yaml_file "$yaml_file" "VolumeReplicationClass"
 }
 
-# Function to create additional stub CRDs if needed
-create_stub_crds() {
-    log_info "🏗️ Creating minimal stub CRDs to prevent operator startup failures..."
+# Function to create External Snapshotter CRDs
+install_snapshot_crds() {
+    log_info "📦 Installing External Snapshotter CRDs first..."
     
-    # NetworkFenceClass (prevents startup errors)
-    cat <<EOF | kubectl apply -f -
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: networkfenceclasses.csiaddons.openshift.io
-spec:
-  group: csiaddons.openshift.io
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-          status:
-            type: object
-  scope: Cluster
-  names:
-    plural: networkfenceclasses
-    singular: networkfenceclass
-    kind: NetworkFenceClass
-EOF
+    local snapshotter_dir="$SCRIPT_DIR/../yaml/external-snapshotter/v6.3.0"
+    
+    # Install VolumeSnapshotClass CRD
+    apply_yaml_file "$snapshotter_dir/volumesnapshotclasses.yaml" "VolumeSnapshotClass CRD"
+    
+    # Install VolumeSnapshot CRD  
+    apply_yaml_file "$snapshotter_dir/volumesnapshots.yaml" "VolumeSnapshot CRD"
+    
+    # Install VolumeSnapshotContent CRD
+    apply_yaml_file "$snapshotter_dir/volumesnapshotcontents.yaml" "VolumeSnapshotContent CRD"
+    
+    log_success "External Snapshotter CRDs installed"
+}
 
-    # VolumeGroupReplicationClass (prevents startup errors)
-    cat <<EOF | kubectl apply -f -
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupreplicationclasses.replication.storage.openshift.io
-spec:
-  group: replication.storage.openshift.io
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-          status:
-            type: object
-  scope: Cluster
-  names:
-    plural: volumegroupreplicationclasses
-    singular: volumegroupreplicationclass
-    kind: VolumeGroupReplicationClass
-EOF
 
-    # VolumeGroupReplication (prevents startup errors)
-    cat <<EOF | kubectl apply -f -
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupreplications.replication.storage.openshift.io
-spec:
-  group: replication.storage.openshift.io
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-          status:
-            type: object
-  scope: Namespaced
-  names:
-    plural: volumegroupreplications
-    singular: volumegroupreplication
-    kind: VolumeGroupReplication
-EOF
+# Function to create VolumeReplication CRDs
+create_volume_replication_crds() {
+    log_info "🏗️ Installing VolumeReplication CRDs..."
+    
+    local resource_classes_dir="$SCRIPT_DIR/../yaml/resource-classes"
+    
+    # VolumeReplication CRD
+    apply_yaml_file "$resource_classes_dir/volume-replication-crd.yaml" "VolumeReplication CRD"
+    
+    # VolumeReplicationClass CRD - now install it explicitly
+    apply_yaml_file "$resource_classes_dir/volume-replication-class-crd.yaml" "VolumeReplicationClass CRD"
+    
+    log_success "VolumeReplication CRDs installed"
+}
 
-    # VolumeGroupSnapshotClass (prevents startup errors)
-    cat <<EOF | kubectl apply -f -
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: volumegroupsnapshotclasses.groupsnapshot.storage.openshift.io
-spec:
-  group: groupsnapshot.storage.openshift.io
-  scope: Cluster
-  names:
-    plural: volumegroupsnapshotclasses
-    singular: volumegroupsnapshotclass
-    kind: VolumeGroupSnapshotClass
-  versions:
-  - name: v1beta1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            type: object
-            x-kubernetes-preserve-unknown-fields: true
-        x-kubernetes-preserve-unknown-fields: true
-EOF
 
-    log_success "Stub CRDs created to prevent operator startup failures"
+# Function to create stub CRDs using existing files
+create_stub_crds() {
+     log_info "🏗️ Creating stub CRDs to prevent operator startup failures..."
+    
+    local crd_dir="$SCRIPT_DIR/../yaml/crds"
+    local resource_classes_dir="$SCRIPT_DIR/../yaml/resource-classes"
+    
+    # NetworkFenceClass CRD - try both locations (prefer crds directory)
+    apply_yaml_file_multi "NetworkFenceClass CRD" \
+        "$crd_dir/networkfenceclass-crd.yaml" \
+        "$resource_classes_dir/network-fence-class-crd.yaml"
+    
+    # VolumeGroupSnapshotClass CRD - try both locations (prefer crds directory)
+    apply_yaml_file_multi "VolumeGroupSnapshotClass CRD" \
+        "$crd_dir/volume-group-snapshot-class-crd.yaml" \
+        "$resource_classes_dir/volume-group-snapshot-class-crd.yaml"
+    
+    # VolumeGroupReplicationClass CRD
+    apply_yaml_file "$resource_classes_dir/volume-group-replication-class-crd.yaml" "VolumeGroupReplicationClass CRD"
+    
+    # VolumeGroupReplication CRD
+    apply_yaml_file "$resource_classes_dir/volume-group-replication-crd.yaml" "VolumeGroupReplication CRD"
+    
+    log_success "Stub CRDs installation completed"
 }
 
 # Function to verify resource creation
@@ -186,11 +134,23 @@ verify_resources() {
     log_info "✅ Verifying created resources..."
     
     echo "VolumeSnapshotClass:"
-    kubectl get volumesnapshotclass demo-snapclass -o wide || log_warning "VolumeSnapshotClass not found"
+    if kubectl get volumesnapshotclass demo-snapclass >/dev/null 2>&1; then
+        kubectl get volumesnapshotclass demo-snapclass -o wide 2>/dev/null || log_warning "Could not get details"
+    else
+        log_warning "VolumeSnapshotClass 'demo-snapclass' not found"
+    fi
     
     echo ""
-    echo "VolumeReplicationClass:"  
-    kubectl get volumereplicationclass demo-replication-class -o wide || log_warning "VolumeReplicationClass not found"
+    echo "VolumeReplicationClass:"
+    if kubectl get volumereplicationclass demo-replication-class >/dev/null 2>&1; then
+        kubectl get volumereplicationclass demo-replication-class -o wide 2>/dev/null || log_warning "Could not get details"
+    else
+        log_warning "VolumeReplicationClass 'demo-replication-class' not found"
+    fi
+    
+    echo ""
+    echo "CRDs installed:"
+    kubectl get crd | grep -E "(volumereplication|networkfence|volumegroup)" 2>/dev/null || echo "No relevant CRDs found"
     
     echo ""
     echo "Labels verification:"
@@ -207,23 +167,29 @@ main() {
     log_info "Installing missing resource classes that VRGs need..."
     
     # Check current context
-    current_context=$(kubectl config current-context)
+    local current_context=$(kubectl config current-context)
     log_info "Current kubectl context: $current_context"
+
+    # Install External Snapshotter CRDs FIRST
+    install_snapshot_crds
+    
+    # Create CRDs needed for resource classes after snapshot CRDs
+    create_volume_replication_crds
+    create_stub_crds
     
     # Create resource classes
     create_volume_snapshot_class
     create_volume_replication_class
-    create_stub_crds
     
     # Verify creation
     verify_resources
     
     log_success "✅ Missing resource classes installation completed!"
     echo ""
-    echo "📝 Next steps:"
-    echo "   1. These resource classes will be available on the current cluster: $current_context"
-    echo "   2. VRGs can now match their selectors successfully"
-    echo "   3. Run this script on all clusters (hub, dr1, dr2) if needed"
+    echo "📝 Summary:"
+    echo "   • Current cluster: $current_context"
+    echo "   • VRGs can now match their selectors successfully"
+    echo "   • Run this script on all clusters if needed"
     echo ""
 }
 

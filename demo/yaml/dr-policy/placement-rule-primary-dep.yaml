@@ -1,0 +1,10 @@
+apiVersion: apps.open-cluster-management.io/v1
+kind: PlacementRule
+metadata:
+  name: dr-primary-placement
+  namespace: nginx-test
+spec:
+  clusterSelector:
+    matchLabels:
+      name: ramen-dr1
+  clusterReplicas: 1

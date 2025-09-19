@@ -1,0 +1,9 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: demo-snapclass
+  labels:
+    app.kubernetes.io/name: ramen-demo
+    velero.io/csi-volumesnapshot-class: "true"
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete

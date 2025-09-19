@@ -28,6 +28,9 @@ DR2_PROFILE="ramen-dr2"
 MINIKUBE_DRIVER="docker"  # or "virtualbox", "podman", etc.
 MEMORY="4096"  # 4GB per cluster
 CPUS="2"
+KUBERNETES_VERSION="v1.29.0"
+DOCKER_NETWORK="ramendr-net"
+
 
 # Check prerequisites
 check_prerequisites() {
@@ -216,6 +219,16 @@ create_clusters() {
     log_step "Creating minikube clusters..."
     echo ""
     
+    
+
+    # Create the network if it doesn't exist
+    if ! docker network ls | grep -q "$DOCKER_NETWORK"; then
+        log_info "Creating custom Docker network: $DOCKER_NETWORK"
+        docker network create "$DOCKER_NETWORK"
+    else
+        log_info "Custom Docker network $DOCKER_NETWORK already exists"
+    fi
+
     # Create hub cluster
     log_info "🏢 Creating hub cluster ($HUB_PROFILE)..."
     log_details "This cluster will run RamenDR hub operator and management components"
@@ -223,9 +236,10 @@ create_clusters() {
     env KUBECONFIG="" minikube start \
         --profile="$HUB_PROFILE" \
         --driver="$MINIKUBE_DRIVER" \
+        --network="$DOCKER_NETWORK" \
         --memory="$MEMORY" \
         --cpus="$CPUS" \
-        --kubernetes-version="v1.27.3" \
+        --kubernetes-version="$KUBERNETES_VERSION" \
         --addons=storage-provisioner,default-storageclass \
         --wait=true
     
@@ -239,9 +253,10 @@ create_clusters() {
     env KUBECONFIG="" minikube start \
         --profile="$DR1_PROFILE" \
         --driver="$MINIKUBE_DRIVER" \
+        --network="$DOCKER_NETWORK" \
         --memory="$MEMORY" \
         --cpus="$CPUS" \
-        --kubernetes-version="v1.27.3" \
+        --kubernetes-version="$KUBERNETES_VERSION" \
         --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
         --wait=true
     
@@ -258,9 +273,10 @@ create_clusters() {
         if env KUBECONFIG="" minikube start \
             --profile="$DR2_PROFILE" \
             --driver="$MINIKUBE_DRIVER" \
+            --network="$DOCKER_NETWORK" \
             --memory="$MEMORY" \
             --cpus="$CPUS" \
-            --kubernetes-version="v1.27.3" \
+            --kubernetes-version="$KUBERNETES_VERSION" \
             --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
             --wait=true; then
             log_success "DR2 cluster created successfully"
@@ -275,8 +291,8 @@ create_clusters() {
 setup_networking() {
     log_step "Configuring cluster networking..."
     echo ""
-    
-    for profile in "$HUB_PROFILE" "$DR1_PROFILE"; do
+
+    for profile in "$HUB_PROFILE" "$DR1_PROFILE" "$DR2_PROFILE"; do
         if env KUBECONFIG="" minikube profile list 2>/dev/null | grep -q "^$profile"; then
             log_info "🌐 Setting up networking for $profile..."
             

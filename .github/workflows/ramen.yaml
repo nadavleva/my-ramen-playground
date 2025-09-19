@@ -84,7 +84,7 @@ jobs:
           echo "=== pre-commit.sh version ==="
           head -10 hack/pre-commit.sh
           echo "=== YAML files found ==="
-          find . -name "*.yaml" -o -name "*.yml" | grep -E "(demo|cluster-manager)" | head -10
+          find . -name "*.yaml" -o -name "*.yml" | grep -E "(demo|cluster-manager)" | head -10 || true
           echo "=== yamllint version ==="
           yamllint --version || echo "yamllint not found"
 

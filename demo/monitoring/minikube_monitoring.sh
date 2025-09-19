@@ -65,10 +65,15 @@ comprehensive_monitoring() {
 
     # ORCHESTRATION LAYER (Hub)
     echo -e "${PURPLE}=== ORCHESTRATION LAYER (HUB) ===${NC}"
+    echo "🌐 ManagedClusters:"
+    kubectl --context=ramen-hub get managedcluster -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No managedclusters found"
     echo "📋 DRPolicy:"
     kubectl --context=ramen-hub get drpolicy -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No DRPolicies found"
-    echo "🎯 DRPlacementControl (DRPC):"
-    kubectl --context=ramen-hub get drplacementcontrol -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No DRPCs found"
+    echo "🎯 DRPlacement (DRPC):"
+    kubectl --context=ramen-hub get placement --all-namespaces -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No DRPCs found"
+    echo ""
+    echo "🎯 PlacementDecision:"
+    kubectl --context=ramen-hub get placementdecision --all-namespaces -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No PlacementDecisions found"
     echo ""
     echo "�� DRClusters:"
     kubectl --context=ramen-hub get drcluster -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No DRClusters found"
@@ -81,7 +86,7 @@ comprehensive_monitoring() {
     echo "🔄 VolSync Resources:"
     kubectl --context=ramen-dr1 get replicationsource,replicationdestination -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No VolSync resources found"
     echo "💾 Volume Replication:" 
-    kubectl --context=ramen-dr1 get volumereplication -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No VolumeReplications found"
+    kubectl --context=ramen-dr1 get volumereplication --all-namespaces -A -o wide 2>/dev/null | grep -v "No resources" || echo "  No VolumeReplications found"
     echo ""
 
     # STORAGE CLASSES & SNAPSHOTS
@@ -94,8 +99,8 @@ comprehensive_monitoring() {
 
     # APPLICATION STATUS
     echo -e "${YELLOW}=== PROTECTED APPLICATIONS ===${NC}"
-    echo "🚀 Pods & PVCs (nginx-demo):"
-    kubectl --context=ramen-dr1 get pods,pvc -n nginx-demo -o wide 2>/dev/null | grep -v "No resources" || echo "  No resources in nginx-demo namespace"
+    echo "🚀 Pods & PVCs (nginx-test):"
+    kubectl --context=ramen-dr1 get pods,pvc -n nginx-test -o wide 2>/dev/null | grep -v "No resources" || echo "  No resources in nginx-test namespace"
     echo ""
 
     # S3 BACKUP STATUS
