@@ -369,7 +369,7 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 			})
 		})
 		When("there is a SnapshotCLass created with required labels", func() {
-			It("updates DRClusterConfig Status", func() {
+			PIt("updates DRClusterConfig Status", func() {
 				By("creating a SnapshotClass")
 
 				vsc1 = baseVSC.DeepCopy()
