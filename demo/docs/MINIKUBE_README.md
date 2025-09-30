@@ -3,6 +3,26 @@
 This guide shows how to run the complete RamenDR demo using **minikube** instead of kind clusters.
 
 ## ✅ **Prerequisites**
+- **vCPUs:** 2+ per cluster (4+ recommended for better performance)
+- **RAM:** 4GB minimum per cluster, 8GB recommended
+- **Docker** (for the `docker` driver)
+- **minikube**
+- **kubectl**
+- **helm**
+
+## Block Device Setup
+
+Each DR cluster requires a dedicated block device for Ceph OSD. These are typically created as loop devices backed by image files:
+
+```bash
+# Example for two DR clusters
+sudo mkdir -p /var/lib/minikube-disks/ramen-dr1
+sudo mkdir -p /var/lib/minikube-disks/ramen-dr2
+sudo dd if=/dev/zero of=/var/lib/minikube-disks/ramen-dr1/ceph-osd.img bs=1G count=10
+sudo dd if=/dev/zero of=/var/lib/minikube-disks/ramen-dr2/ceph-osd.img bs=1G count=10
+sudo losetup /dev/loop0 /var/lib/minikube-disks/ramen-dr1/ceph-osd.img
+sudo losetup /dev/loop1 /var/lib/minikube-disks/ramen-dr2/ceph-osd.img
+```
 
 ### **Required Tools:**
 ```bash
