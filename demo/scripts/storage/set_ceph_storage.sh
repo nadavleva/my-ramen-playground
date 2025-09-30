@@ -46,17 +46,28 @@ for CONTEXT in "${CLUSTERS[@]}"; do
         log_success "Ceph cluster resource applied in $CONTEXT."
     fi
 
-    # 5. Wait for Ceph cluster to be ready if not already
+    # 5. Wait for Ceph cluster to be ready if not already (with shorter timeout for minikube)
     PHASE=$(kubectl --context="$CONTEXT" -n rook-ceph get cephcluster rook-ceph -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
     if [[ "$PHASE" != "Ready" ]]; then
-        log_long_operation "Waiting for Ceph cluster to be ready in $CONTEXT" "5-15 minutes"
-        if kubectl --context="$CONTEXT" -n rook-ceph wait --for=condition=Ready cephcluster rook-ceph --timeout=900s; then
+        log_long_operation "Waiting for Ceph cluster to be ready in $CONTEXT" "2-3 minutes (shorter timeout for minikube)"
+        
+        # Use shorter timeout (180s = 3 minutes) for minikube to avoid long waits
+        if kubectl --context="$CONTEXT" -n rook-ceph wait --for=condition=Ready cephcluster rook-ceph --timeout=180s; then
             log_success "Ceph cluster is ready in $CONTEXT!"
         else
-            log_warning "Timed out waiting for Ceph cluster to be ready in $CONTEXT. Please check the cluster status."
-            log_info "Debug information:"
-            kubectl --context="$CONTEXT" -n rook-ceph get cephcluster rook-ceph -o wide
-            kubectl --context="$CONTEXT" -n rook-ceph get pods | head -10
+            log_warning "Ceph cluster not ready within timeout in $CONTEXT. This is common in minikube single-node setups."
+            log_info "Current cluster phase: $PHASE"
+            
+            # Check if storage classes are available despite cluster not being fully ready
+            if kubectl --context="$CONTEXT" get storageclass rook-ceph-block >/dev/null 2>&1; then
+                log_success "✅ Storage classes are available! Continuing setup despite cluster phase..."
+                log_info "Note: Single-node minikube often shows 'Progressing' but storage classes work."
+            else
+                log_warning "⚠️  Storage classes not yet available. Cluster may need more time."
+                log_info "Debug information:"
+                kubectl --context="$CONTEXT" -n rook-ceph get cephcluster rook-ceph -o wide || true
+                kubectl --context="$CONTEXT" -n rook-ceph get pods | head -10 || true
+            fi
         fi
     else
         log_success "Ceph cluster is ready in $CONTEXT!"

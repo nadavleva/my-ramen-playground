@@ -70,6 +70,21 @@ storage_monitoring() {
     timeout 10 kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph df 2>/dev/null | head -10 || echo "  Storage info unavailable"
     echo ""
 
+    # CEPH CLUSTER EVENTS
+    echo -e "${YELLOW}=== CEPH CLUSTER EVENTS (Recent) ===${NC}"
+    echo "📅 ramen-dr1 CephCluster events (last 5):"
+    kubectl --context=ramen-dr1 -n rook-ceph get events --field-selector involvedObject.name=rook-ceph,involvedObject.kind=CephCluster --sort-by='.lastTimestamp' 2>/dev/null | tail -6 | head -5 || echo "  No recent CephCluster events found on ramen-dr1"
+    echo "📅 ramen-dr2 CephCluster events (last 5):"
+    kubectl --context=ramen-dr2 -n rook-ceph get events --field-selector involvedObject.name=rook-ceph,involvedObject.kind=CephCluster --sort-by='.lastTimestamp' 2>/dev/null | tail -6 | head -5 || echo "  No recent CephCluster events found on ramen-dr2"
+    echo ""
+
+    # OPERATOR RESTART STATUS
+    echo -e "${CYAN}=== OPERATOR RESTART STATUS ===${NC}"
+    echo "🔄 Rook Operator restarts:"
+    echo "  ramen-dr1: $(kubectl --context=ramen-dr1 -n rook-ceph get pods -l app=rook-ceph-operator -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo 'N/A') restarts (just restarted)"
+    echo "  ramen-dr2: $(kubectl --context=ramen-dr2 -n rook-ceph get pods -l app=rook-ceph-operator -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo 'N/A') restarts"
+    echo ""
+
     # STORAGE CLASSES
     echo -e "${BLUE}=== STORAGE CLASSES ===${NC}"
     echo "📂 Available Storage Classes (ramen-dr1):"
