@@ -1,0 +1,197 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Block Storage SAN Demo with Rook Ceph RBD
+# This demonstrates traditional SAN-like block storage replication
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: block-storage-demo
+  labels:
+    app.kubernetes.io/name: block-storage-demo
+    ramendr.openshift.io/protected: "true"
+    storage-demo-type: "block-san"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-block-pvc
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+    ramendr.openshift.io/protected: "true"
+    storage-type: block
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: rook-ceph-block
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-block
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+    storage-demo-type: "block-san"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-block
+  template:
+    metadata:
+      labels:
+        app: nginx-block
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: storage
+          mountPath: /usr/share/nginx/html
+        - name: data-storage
+          mountPath: /data
+        # Create comprehensive test data for SAN demo
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # Create web content
+          cat > /usr/share/nginx/html/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+          <head><title>Block Storage SAN Demo</title></head>
+          <body>
+          <h1>RamenDR Block Storage SAN Demo</h1>
+          <h2>Storage Details</h2>
+          <p><strong>Storage Type:</strong> Rook Ceph RBD (Block)</p>
+          <p><strong>Storage Class:</strong> rook-ceph-block</p>
+          <p><strong>Access Mode:</strong> ReadWriteOnce</p>
+          <p><strong>Capacity:</strong> 2Gi</p>
+          <hr>
+          <h2>Application Details</h2>
+          <p><strong>Deployment Time:</strong> $(date)</p>
+          <p><strong>Pod Name:</strong> $(hostname)</p>
+          <p><strong>Namespace:</strong> block-storage-demo</p>
+          <hr>
+          <h2>Data Persistence Test</h2>
+          <p>This data is stored on Rook Ceph RBD and should survive:</p>
+          <ul>
+          <li>Pod restarts</li>
+          <li>Node failures</li>
+          <li>Disaster recovery failovers</li>
+          </ul>
+          <p><em>Data write timestamp: $(date)</em></p>
+          </body>
+          </html>
+          EOF
+          
+          # Create test data files on persistent storage
+          mkdir -p /data/san-test
+          echo "Block Storage SAN Test Data" > /data/san-test/test-file.txt
+          echo "Created: $(date)" >> /data/san-test/test-file.txt
+          echo "PVC: nginx-block-pvc" >> /data/san-test/test-file.txt
+          echo "StorageClass: rook-ceph-block" >> /data/san-test/test-file.txt
+          
+          # Create performance test markers
+          dd if=/dev/zero of=/data/san-test/1mb-test-file bs=1M count=1 2>/dev/null
+          echo "Performance test file created: $(date)" >> /data/san-test/perf-log.txt
+          
+          # Start nginx
+          echo "Starting nginx server..."
+          nginx -g "daemon off;"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: nginx-block-pvc
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: nginx-block-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-block-service
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: nginx-block
+
+---
+# ConfigMap for testing and validation scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: block-storage-tests
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+data:
+  test-storage.sh: |
+    #!/bin/bash
+    echo "=== Block Storage SAN Test ==="
+    echo "Testing data persistence on Rook Ceph RBD..."
+    
+    # Check if test files exist
+    if [ -f /data/san-test/test-file.txt ]; then
+        echo "✅ Test file found:"
+        cat /data/san-test/test-file.txt
+    else
+        echo "❌ Test file missing!"
+        exit 1
+    fi
+    
+    # Check storage usage
+    echo -e "\n=== Storage Usage ==="
+    df -h /data
+    
+    # Test write performance
+    echo -e "\n=== Write Performance Test ==="
+    time dd if=/dev/zero of=/data/san-test/perf-test-$(date +%s) bs=1M count=10 2>&1
+    
+    echo -e "\n=== Files in storage ==="
+    ls -la /data/san-test/
+    
+    echo "Block storage test completed successfully!"
+  
+  validate-replication.sh: |
+    #!/bin/bash
+    echo "=== Validating RamenDR Block Storage Replication ==="
+    
+    # Check VRG status
+    echo "Checking VolumeReplicationGroup..."
+    kubectl get vrg -n block-storage-demo -o wide
+    
+    # Check PVC status
+    echo -e "\nChecking PVC status..."
+    kubectl get pvc -n block-storage-demo -o wide
+    
+    # Check replication status
+    echo -e "\nChecking replication status..."
+    kubectl get volumereplication -n block-storage-demo -o wide || echo "No VolumeReplication found"
+    
+    echo "Replication validation completed!"
