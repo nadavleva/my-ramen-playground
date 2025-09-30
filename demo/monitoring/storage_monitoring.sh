@@ -63,11 +63,11 @@ storage_monitoring() {
 
     # CEPH HEALTH STATUS
     echo -e "${GREEN}=== CEPH HEALTH STATUS ===${NC}"
-    echo "🏥 Cluster Health (ramen-dr1):"
-    timeout 10 kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph status -f json 2>/dev/null | jq -r '.health.status // "Unknown"' 2>/dev/null || echo "  Cannot connect to Ceph cluster"
+    echo "🏥 Cluster Health (ramen-dr2):"
+    timeout 10 kubectl --context=ramen-dr2 -n rook-ceph exec deploy/rook-ceph-tools -- ceph status -f json 2>/dev/null | jq -r '.health.status // "Unknown"' 2>/dev/null || echo "  Cannot connect to Ceph cluster"
     
     echo "💾 Storage Usage:"
-    timeout 10 kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph df 2>/dev/null | head -10 || echo "  Storage info unavailable"
+    timeout 10 kubectl --context=ramen-dr2 -n rook-ceph exec deploy/rook-ceph-tools -- ceph df 2>/dev/null | head -10 || echo "  Storage info unavailable"
     echo ""
 
     # CEPH CLUSTER EVENTS
