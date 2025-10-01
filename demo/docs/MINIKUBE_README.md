@@ -10,6 +10,24 @@ This guide shows how to run the complete RamenDR demo using **minikube** instead
 - **kubectl**
 - **helm**
 
+## Storage Backend Options
+
+### Option A: HostPath Storage (Default - Simple)
+```bash
+# Uses minikube's default hostpath storage
+./demo/scripts/minikube_setup.sh
+```
+
+### Option B: Ceph Storage (Advanced - Production-like)
+```bash
+# Setup with Ceph distributed storage
+./demo/scripts/minikube_setup.sh --storage-backend=ceph
+
+# Additional requirements for Ceph:
+# - Extra 2GB RAM per cluster
+# - Block devices for OSDs (can be set in the Block Device Setup)
+# - Longer setup time (~10-15 minutes
+
 ## Block Device Setup
 
 Each DR cluster requires a dedicated block device for Ceph OSD. These are typically created as loop devices backed by image files:
