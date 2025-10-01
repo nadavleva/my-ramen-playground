@@ -1,0 +1,47 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Ceph File System for shared storage (CephFS)
+# Required for rook-cephfs storage class to work properly
+
+apiVersion: ceph.rook.io/v1
+kind: CephFilesystem
+metadata:
+  name: myfs
+  namespace: rook-ceph
+  labels:
+    ramendr-demo: "true"
+    storage-type: "cephfs"
+spec:
+  # Metadata pool configuration
+  metadataPool:
+    replicated:
+      size: 1  # Single replica for demo (increase for production)
+      requireSafeReplicaSize: false
+  
+  # Data pools configuration
+  dataPools:
+  - name: replicated
+    replicated:
+      size: 1  # Single replica for demo (increase for production)
+      requireSafeReplicaSize: false
+
+  # Preserve filesystem data when CephFilesystem is deleted
+  preserveFilesystemOnDelete: false
+
+  # Metadata server configuration
+  metadataServer:
+    activeCount: 1       # Number of active MDS pods
+    activeStandby: false # No standby MDS for demo
+    priorityClassName: ""
+    placement: {}
+    annotations: {}
+    labels: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

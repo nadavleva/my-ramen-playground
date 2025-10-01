@@ -493,6 +493,250 @@ get_object_yaml() {
     kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag -o yaml 2>/dev/null
 }
 
+# Utility function to log long-running operations with timeout warning
+log_long_operation() {
+    local operation_description="$1"
+    local estimated_time="${2:-60s}"
+    
+    log_info "⏳ Starting: $operation_description"
+    log_warning "This operation may take up to $estimated_time to complete. Please wait..."
+    echo ""
+}
+
+# Utility function to wait for CephFS with progress indicators
+wait_for_cephfs() {
+    local context="$1"
+    local cephfs_name="$2"
+    local namespace="$3"
+    local timeout="${4:-600}"  # 10 minutes default
+    
+    log_long_operation "Waiting for CephFS '$cephfs_name' to become ready" "5-10 minutes"
+    
+    local max_attempts=$((timeout / 10))  # Check every 10 seconds
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        local phase=$(kubectl --context="$context" -n "$namespace" get cephfilesystem "$cephfs_name" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        
+        case "$phase" in
+            "Ready")
+                log_success "CephFS '$cephfs_name' is ready!"
+                return 0
+                ;;
+            "Progressing"|"Creating")
+                if [ $((attempts % 6)) -eq 0 ]; then  # Log every minute
+                    log_info "CephFS status: $phase... (${attempts}/${max_attempts}) - still waiting"
+                fi
+                ;;
+            "Error"|"Failed")
+                log_error "CephFS '$cephfs_name' failed to create (status: $phase)"
+                # Show debug information
+                kubectl --context="$context" -n "$namespace" describe cephfilesystem "$cephfs_name" | tail -20
+                return 1
+                ;;
+            "Unknown"|"")
+                log_warning "CephFS '$cephfs_name' status unknown - may still be initializing"
+                ;;
+            *)
+                log_info "CephFS status: $phase"
+                ;;
+        esac
+        
+        sleep 10
+        ((attempts++))
+    done
+    
+    log_error "CephFS '$cephfs_name' not ready within $((timeout / 60)) minutes"
+    # Show final debug information
+    log_info "Final status check:"
+    kubectl --context="$context" -n "$namespace" get cephfilesystem "$cephfs_name" -o wide
+    kubectl --context="$context" -n "$namespace" describe cephfilesystem "$cephfs_name" | tail -20
+    return 1
+}
+
+# Utility function to apply YAML file with timeout warning for long operations
+apply_yaml_with_timeout_warning() {
+    local context="$1"
+    local yaml_file="$2"
+    local description="$3"
+    local estimated_time="${4:-30s}"
+    
+    if [[ ! -f "$yaml_file" ]]; then
+        log_error "YAML file not found: $yaml_file"
+        return 1
+    fi
+    
+    log_long_operation "Applying $description" "$estimated_time"
+    
+    if kubectl --context="$context" apply -f "$yaml_file"; then
+        log_success "$description applied successfully"
+        return 0
+    else
+        log_warning "$description application failed (may already exist)"
+        # Check if resources exist anyway
+        log_info "Checking if resources were created despite the error..."
+        return 0  # Don't fail for existing resources
+    fi
+}
+
+# Utility function to check and remove finalizers from a resource
+remove_finalizers() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    log_info "Checking for finalizers on '$resource_type/$resource_name'..."
+    
+    # Get resource YAML to check for finalizers
+    local yaml_output=$(kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag -o yaml 2>/dev/null || echo "")
+    if [ -z "$yaml_output" ]; then
+        log_info "Resource '$resource_type/$resource_name' not found."
+        return 1
+    fi
+    
+    # Check for finalizers (use grep to avoid yq dependency)
+    if echo "$yaml_output" | grep -q "finalizers:" && echo "$yaml_output" | grep -A5 "finalizers:" | grep -q "- "; then
+        log_warning "Resource has finalizers. Attempting to remove them..."
+        
+        # Try to remove finalizers with retries
+        local attempts=0
+        local max_attempts=3
+        
+        while [ $attempts -lt $max_attempts ]; do
+            if kubectl --context="$context" patch "$resource_type" "$resource_name" $ns_flag --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' >/dev/null 2>&1; then
+                log_success "Finalizers removed from '$resource_type/$resource_name'"
+                return 0
+            else
+                ((attempts++))
+                if [ $attempts -lt $max_attempts ]; then
+                    log_warning "Failed to remove finalizers (attempt $attempts/$max_attempts), retrying..."
+                    sleep 2
+                else
+                    log_error "Failed to remove finalizers after $max_attempts attempts"
+                    return 1
+                fi
+            fi
+        done
+    else
+        log_info "No finalizers found on '$resource_type/$resource_name'"
+        return 0
+    fi
+}
+
+# Utility function to force delete a resource, handling finalizers and webhooks
+force_delete_resource() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    local timeout="${5:-120}"
+    
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    log_info "Force deleting '$resource_type/$resource_name' on '$context'..."
+    
+    # Check if resource exists
+    if ! kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
+        log_info "Resource '$resource_type/$resource_name' does not exist."
+        return 0
+    fi
+    
+    # Step 1: Remove finalizers first
+    remove_finalizers "$context" "$resource_type" "$resource_name" "$namespace"
+    
+    # Step 2: Try graceful deletion
+    log_step "Attempting graceful deletion..."
+    if kubectl --context="$context" delete "$resource_type" "$resource_name" $ns_flag --grace-period=30 >/dev/null 2>&1; then
+        log_info "Graceful deletion initiated"
+    else
+        log_warning "Graceful deletion failed, will try force deletion"
+    fi
+    
+    # Step 3: Wait and check if deleted
+    local max_attempts=$((timeout / 5))
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        if ! kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
+            log_success "Resource '$resource_type/$resource_name' deleted successfully"
+            return 0
+        fi
+        
+        # Every 30 seconds, try more aggressive deletion
+        if [ $((attempts % 6)) -eq 0 ] && [ $attempts -gt 0 ]; then
+            log_warning "Resource still exists, trying force deletion..."
+            kubectl --context="$context" delete "$resource_type" "$resource_name" $ns_flag --force --grace-period=0 >/dev/null 2>&1 || true
+        fi
+        
+        sleep 5
+        ((attempts++))
+        
+        if [ $((attempts % 12)) -eq 0 ]; then  # Every minute
+            log_info "Still waiting for deletion... (${attempts}/${max_attempts})"
+        fi
+    done
+    
+    log_error "Failed to delete '$resource_type/$resource_name' within $((timeout / 60)) minutes"
+    log_info "Resource may still be terminating. Check manually with:"
+    log_info "  kubectl --context=$context get $resource_type $resource_name $ns_flag"
+    return 1
+}
+
+# Utility function to apply resource with webhook retry logic
+apply_with_webhook_retry() {
+    local context="$1"
+    local yaml_file="$2"
+    local description="$3"
+    local max_retries="${4:-5}"
+    local retry_delay="${5:-10}"
+    
+    if [[ ! -f "$yaml_file" ]]; then
+        log_error "YAML file not found: $yaml_file"
+        return 1
+    fi
+    
+    log_info "Applying $description (with webhook retry logic)..."
+    
+    local attempt=1
+    while [ $attempt -le $max_retries ]; do
+        log_step "Attempt $attempt/$max_retries for $description"
+        
+        if kubectl --context="$context" apply -f "$yaml_file" 2>&1; then
+            log_success "$description applied successfully"
+            return 0
+        else
+            local exit_code=$?
+            
+            if [ $attempt -lt $max_retries ]; then
+                log_warning "$description failed (attempt $attempt/$max_retries). Common causes:"
+                log_info "  - Webhook validation failures"
+                log_info "  - API server overload"
+                log_info "  - Resource conflicts"
+                log_info "  - Waiting $retry_delay seconds before retry..."
+                sleep $retry_delay
+                
+                # Exponentially increase delay for subsequent retries
+                retry_delay=$((retry_delay + 5))
+            else
+                log_error "$description failed after $max_retries attempts"
+                return $exit_code
+            fi
+        fi
+        ((attempt++))
+    done
+    
+    return 1
+}
+
 # Utility function to safely delete a resource, handling finalizers
 safe_delete() {
     local context="$1"
@@ -501,51 +745,6 @@ safe_delete() {
     local namespace="${4:-}"
     local timeout="${5:-60}"
     
-    local ns_flag=""
-    if [ -n "$namespace" ]; then
-        ns_flag="-n $namespace"
-    fi
-    
-    log_info "Checking if resource '$resource_type/$resource_name' exists on '$context'..."
-    
-    # Check if resource exists using get_object_yaml
-    local yaml_output=$(get_object_yaml "$context" "$resource_type" "$resource_name" "$namespace")
-    if [ -z "$yaml_output" ]; then
-        log_info "Resource '$resource_type/$resource_name' does not exist, skipping deletion."
-        return 0
-    fi
-    
-    log_info "Resource exists, checking for finalizers..."
-    
-    # Check for finalizers
-    local finalizers=$(echo "$yaml_output" | yq eval '.metadata.finalizers // []' - 2>/dev/null || echo "[]")
-    if [ "$finalizers" != "[]" ] && [ "$finalizers" != "null" ]; then
-        log_warning "Resource has finalizers: $finalizers. Removing them..."
-        # Patch to remove finalizers
-        kubectl --context="$context" patch "$resource_type" "$resource_name" $ns_flag --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' >/dev/null 2>&1 || log_warning "Failed to remove finalizers, proceeding with deletion."
-    fi
-    
-    # Delete the resource
-    log_info "Deleting resource '$resource_type/$resource_name'..."
-    if kubectl --context="$context" delete "$resource_type" "$resource_name" $ns_flag --ignore-not-found=true >/dev/null 2>&1; then
-        log_info "Deletion initiated, waiting for confirmation..."
-        
-        # Wait for deletion
-        local max_attempts=$((timeout / 5))
-        local attempts=0
-        while [ $attempts -lt $max_attempts ]; do
-            if ! kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
-                log_success "Resource '$resource_type/$resource_name' deleted successfully."
-                return 0
-            fi
-            sleep 5
-            ((attempts++))
-        done
-        
-        log_warning "Resource '$resource_type/$resource_name' deletion timed out, but may still be in progress."
-        return 0
-    else
-        log_error "Failed to delete resource '$resource_type/$resource_name'."
-        return 1
-    fi
+    # Use the improved force_delete_resource function
+    force_delete_resource "$context" "$resource_type" "$resource_name" "$namespace" "$timeout"
 }

@@ -1,0 +1,112 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Rook Ceph Storage Classes for RamenDR Storage Demos
+# These storage classes enable different storage types for SAN/VSAN scenarios
+
+# Block Storage (RBD) - for traditional SAN scenarios
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-ceph-block
+  labels:
+    storage-type: block
+    ramendr-demo: "true"
+provisioner: rook-ceph.rbd.csi.ceph.com
+parameters:
+  clusterID: rook-ceph
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+  # Enable volume snapshots for RamenDR
+  csi.storage.k8s.io/snapshotter-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/snapshotter-secret-namespace: rook-ceph
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+
+---
+# File Storage (CephFS) - for VSAN-like shared storage scenarios
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-cephfs
+  labels:
+    storage-type: file
+    ramendr-demo: "true"
+provisioner: rook-ceph.cephfs.csi.ceph.com
+parameters:
+  clusterID: rook-ceph
+  fsName: myfs
+  pool: myfs-replicated
+  # Optional: Specify subvolume group (defaults to csi)
+  # subvolumeGroup: mygroup
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+
+---
+# Object Storage (S3) - for VSAN metadata and object scenarios
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-ceph-bucket
+  labels:
+    storage-type: object
+    ramendr-demo: "true"
+provisioner: rook-ceph.ceph.rook.io/bucket
+parameters:
+  objectStoreName: my-store
+  objectStoreNamespace: rook-ceph
+  # Optional: Bucket retention policy
+  # bucketPolicy: delete
+  # Optional: Object locking
+  # objectLock: false
+reclaimPolicy: Delete
+
+---
+# Volume Snapshot Class for Block Storage
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: rook-ceph-block-snapshot
+  labels:
+    storage-type: block-snapshot
+    ramendr-demo: "true"
+    velero.io/csi-volumesnapshot-class: "true"  # Required for RamenDR
+driver: rook-ceph.rbd.csi.ceph.com
+deletionPolicy: Delete
+parameters:
+  clusterID: rook-ceph
+  csi.storage.k8s.io/snapshotter-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/snapshotter-secret-namespace: rook-ceph
+
+---
+# Volume Snapshot Class for File Storage (if supported)
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: rook-cephfs-snapshot
+  labels:
+    storage-type: file-snapshot
+    ramendr-demo: "true"
+    velero.io/csi-volumesnapshot-class: "true"
+driver: rook-ceph.cephfs.csi.ceph.com
+deletionPolicy: Delete
+parameters:
+  clusterID: rook-ceph
+  csi.storage.k8s.io/snapshotter-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/snapshotter-secret-namespace: rook-ceph

@@ -1,0 +1,60 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# VolumeReplicationGroup for File Storage VSAN Demo
+# This protects the CephFS shared storage with RamenDR
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: VolumeReplicationGroup
+metadata:
+  name: file-storage-vrg
+  namespace: file-storage-demo
+  labels:
+    app: file-demo
+    ramendr.openshift.io/demo: "true"
+    storage-demo-type: "file-vsan"
+spec:
+  # Required: PVC selector to identify which PVCs to protect
+  pvcSelector:
+    matchLabels:
+      app: file-demo
+
+  # Required: Replication state (primary = active, secondary = standby)
+  replicationState: primary
+
+  # Required: S3 profiles for metadata storage
+  s3Profiles:
+  - minio-s3
+
+  # Optional: Action for DR operations
+  action: Relocate
+
+  # Async replication configuration for File storage
+  async:
+    # For VSAN-like scenarios, balance between data consistency and performance
+    schedulingInterval: 5m
+
+    # Volume replication class selector
+    replicationClassSelector:
+      matchLabels:
+        ramendr.openshift.io/replicationID: ramen-volsync
+
+    # Volume snapshot class selector (for point-in-time backups)
+    volumeSnapshotClassSelector:
+      matchLabels:
+        velero.io/csi-volumesnapshot-class: "true"
+
+  # Kubernetes object protection configuration
+  kubeObjectProtection:
+    # For VSAN scenarios, capture metadata more frequently due to multiple writers
+    captureInterval: 3m
+
+    # Select all objects in the namespace for protection
+    kubeObjectSelector:
+      matchLabels:
+        storage-demo-type: "file-vsan"
+
+  # Optional: Prune policy for file storage
+  # Files in shared storage can grow quickly, so consider pruning strategies
+  # Note: This is a placeholder - actual pruning would be handled by application logic

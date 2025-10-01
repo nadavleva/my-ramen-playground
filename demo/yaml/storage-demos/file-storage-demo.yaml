@@ -1,0 +1,273 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# File Storage (CephFS) VSAN Demo
+# This demonstrates shared file storage scenarios with multiple writers
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: file-storage-demo
+  labels:
+    app.kubernetes.io/name: file-storage-demo
+    ramendr.openshift.io/protected: "true"
+    storage-demo-type: "file-vsan"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-file-pvc
+  namespace: file-storage-demo
+  labels:
+    app: file-demo
+    ramendr.openshift.io/protected: "true"
+    storage-type: file
+spec:
+  accessModes:
+    - ReadWriteMany  # Key difference: RWX for shared access
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: rook-cephfs  # CephFS for shared file storage
+
+---
+# Multiple writer pods to demonstrate shared storage
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-writer
+  namespace: file-storage-demo
+  labels:
+    app: file-writer
+    storage-demo-type: "file-vsan"
+spec:
+  replicas: 3  # Multiple replicas writing to shared storage
+  selector:
+    matchLabels:
+      app: file-writer
+  template:
+    metadata:
+      labels:
+        app: file-writer
+    spec:
+      containers:
+      - name: writer
+        image: busybox:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # Create unique identification
+          WRITER_ID="writer-$(hostname | cut -d'-' -f3-)"
+          echo "Starting $WRITER_ID"
+          
+          # Initialize shared storage structure
+          mkdir -p /shared/logs
+          mkdir -p /shared/data
+          mkdir -p /shared/vsan-test
+          
+          # Create initial VSAN-like metadata
+          cat > /shared/vsan-test/cluster-info.json <<EOF
+          {
+            "cluster_id": "demo-cluster",
+            "storage_type": "cephfs-vsan",
+            "access_mode": "ReadWriteMany",
+            "writers": []
+          }
+          EOF
+          
+          # Register this writer
+          echo "  \"$WRITER_ID\"," >> /shared/vsan-test/writers.txt
+          
+          # Continuous write loop
+          while true; do
+            timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+            
+            # Write activity logs
+            echo "[$timestamp] $WRITER_ID - Active write cycle" >> /shared/logs/activity.log
+            
+            # Write performance data
+            echo "[$timestamp] $WRITER_ID - $(uptime)" >> /shared/logs/performance.log
+            
+            # Create small data files (simulating VSAN datastore activity)
+            echo "Data from $WRITER_ID at $timestamp" > /shared/data/data-${WRITER_ID}-$(date +%s).txt
+            
+            # Update cluster status
+            echo "[$timestamp] $WRITER_ID - Heartbeat" >> /shared/vsan-test/heartbeat.log
+            
+            # Cleanup old files (keep last 10)
+            ls -t /shared/data/data-${WRITER_ID}-*.txt | tail -n +11 | xargs rm -f 2>/dev/null || true
+            
+            sleep 10
+          done
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /shared
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-file-pvc
+
+---
+# Reader deployment to monitor shared storage
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-reader
+  namespace: file-storage-demo
+  labels:
+    app: file-reader
+    storage-demo-type: "file-vsan"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: file-reader
+  template:
+    metadata:
+      labels:
+        app: file-reader
+    spec:
+      containers:
+      - name: reader
+        image: busybox:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Starting VSAN File Storage Monitor..."
+          
+          while true; do
+            clear 2>/dev/null || true
+            echo "=== VSAN File Storage Demo Status ==="
+            echo "Time: $(date)"
+            echo "Storage Type: CephFS (ReadWriteMany)"
+            echo "PVC: shared-file-pvc"
+            echo ""
+            
+            echo "=== Active Writers ==="
+            if [ -f /shared/vsan-test/writers.txt ]; then
+              cat /shared/vsan-test/writers.txt | grep -v '^$' | wc -l | xargs echo "Registered writers:"
+            fi
+            
+            echo ""
+            echo "=== Recent Activity (last 5 entries) ==="
+            if [ -f /shared/logs/activity.log ]; then
+              tail -5 /shared/logs/activity.log
+            else
+              echo "No activity log found yet..."
+            fi
+            
+            echo ""
+            echo "=== Data Files Count ==="
+            if [ -d /shared/data ]; then
+              echo "Current data files: $(ls /shared/data/ | wc -l)"
+            fi
+            
+            echo ""
+            echo "=== Storage Usage ==="
+            df -h /shared 2>/dev/null || echo "Storage info not available"
+            
+            sleep 30
+          done
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /shared
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-file-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-reader-service
+  namespace: file-storage-demo
+  labels:
+    app: file-reader
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: file-reader
+
+---
+# ConfigMap with file storage testing utilities
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: file-storage-tests
+  namespace: file-storage-demo
+  labels:
+    app: file-demo
+data:
+  test-concurrent-access.sh: |
+    #!/bin/bash
+    echo "=== CephFS Concurrent Access Test ==="
+    
+    # Test concurrent read/write access
+    echo "Testing concurrent file access..."
+    
+    # Create test files from multiple processes
+    for i in {1..5}; do
+      (
+        echo "Process $i writing to shared storage"
+        echo "Test data from process $i - $(date)" > /shared/test-$i.txt
+        sleep 1
+        cat /shared/test-$i.txt
+      ) &
+    done
+    
+    wait
+    
+    echo -e "\n=== Test Results ==="
+    ls -la /shared/test-*.txt
+    
+    echo -e "\n=== File Contents ==="
+    for f in /shared/test-*.txt; do
+      echo "=== $f ==="
+      cat "$f"
+    done
+    
+    # Cleanup
+    rm -f /shared/test-*.txt
+    echo "Concurrent access test completed!"
+  
+  monitor-vsan.sh: |
+    #!/bin/bash
+    echo "=== VSAN-like Monitoring Script ==="
+    
+    while true; do
+      echo "=== $(date) ==="
+      echo "Storage Usage:"
+      df -h /shared
+      
+      echo -e "\nActive Files:"
+      find /shared -type f -mmin -1 | wc -l
+      
+      echo -e "\nRecent Writers:"
+      if [ -f /shared/logs/activity.log ]; then
+        tail -10 /shared/logs/activity.log | cut -d']' -f2 | cut -d'-' -f1 | sort -u
+      fi
+      
+      echo "========================"
+      sleep 60
+    done

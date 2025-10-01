@@ -26,10 +26,17 @@ HUB_PROFILE="ramen-hub"
 DR1_PROFILE="ramen-dr1"
 DR2_PROFILE="ramen-dr2"
 MINIKUBE_DRIVER="docker"  # or "virtualbox", "podman", etc.
-MEMORY="4096"  # 4GB per cluster
-CPUS="2"
+MEMORY="8192"  # 8GB per cluster recommended
+CPUS="4"       # 4 vCPUs per cluster recommended
 KUBERNETES_VERSION="v1.29.0"
 DOCKER_NETWORK="ramendr-net"
+
+# Block device paths for OSDs
+DR1_LOOP_DEVICE="/dev/loop0"
+DR1_IMG_PATH="/var/lib/minikube-disks/ramen-dr1/ceph-osd.img"
+DR2_LOOP_DEVICE="/dev/loop1"
+DR2_IMG_PATH="/var/lib/minikube-disks/ramen-dr2/ceph-osd.img"
+
 
 
 # Check prerequisites
@@ -224,7 +231,7 @@ create_clusters() {
     # Create the network if it doesn't exist
     if ! docker network ls | grep -q "$DOCKER_NETWORK"; then
         log_info "Creating custom Docker network: $DOCKER_NETWORK"
-        docker network create "$DOCKER_NETWORK"
+        docker network create --subnet=172.18.0.0/16 "$DOCKER_NETWORK" 
     else
         log_info "Custom Docker network $DOCKER_NETWORK already exists"
     fi
@@ -249,6 +256,12 @@ create_clusters() {
     # Create DR1 cluster
     log_info "🌊 Creating DR cluster 1 ($DR1_PROFILE)..."
     log_details "This cluster will run RamenDR DR cluster operator and workloads"
+
+    # Ensure block device exists
+    if ! sudo losetup -a | grep -q "$DR1_LOOP_DEVICE"; then
+        log_error "Block device $DR1_LOOP_DEVICE not found. Please create it with losetup."
+        exit 1
+    fi
     
     env KUBECONFIG="" minikube start \
         --profile="$DR1_PROFILE" \
@@ -258,6 +271,7 @@ create_clusters() {
         --cpus="$CPUS" \
         --kubernetes-version="$KUBERNETES_VERSION" \
         --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
+        --mount --mount-string="$DR1_LOOP_DEVICE:/dev/loop1" \
         --wait=true
     
     log_success "DR1 cluster created successfully"
@@ -269,6 +283,12 @@ create_clusters() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         log_info "🌊 Creating DR cluster 2 ($DR2_PROFILE)..."
         log_details "This cluster provides additional DR target for complex scenarios"
+
+        # Ensure block device exists
+        if ! sudo losetup -a | grep -q "$DR2_LOOP_DEVICE"; then
+            log_error "Block device $DR2_LOOP_DEVICE not found. Please create it with losetup."
+            exit 1
+        fi
         
         if env KUBECONFIG="" minikube start \
             --profile="$DR2_PROFILE" \
@@ -278,6 +298,7 @@ create_clusters() {
             --cpus="$CPUS" \
             --kubernetes-version="$KUBERNETES_VERSION" \
             --addons=storage-provisioner,default-storageclass,volumesnapshots,csi-hostpath-driver \
+            --mount --mount-string="$DR2_LOOP_DEVICE:/dev/loop1" \
             --wait=true; then
             log_success "DR2 cluster created successfully"
         else
@@ -321,6 +342,20 @@ setup_networking() {
     fi
     
     echo ""
+}
+
+# Verify block devices for OSDs
+verify_block_device() {
+    for profile in "$DR1_PROFILE" "$DR2_PROFILE"; do
+        if minikube profile list 2>/dev/null | grep -q "^$profile"; then
+            log_info "🔍 Verifying block device on $profile..."
+            if minikube ssh -p "$profile" "lsblk | grep loop1"; then
+                log_success "Block device /dev/loop1 is present in $profile"
+            else
+                log_error "Block device /dev/loop1 is NOT present in $profile"
+            fi
+        fi
+    done
 }
 
 # Verify clusters
@@ -467,6 +502,7 @@ main() {
     check_prerequisites
     cleanup_existing
     create_clusters
+    verify_block_device
     setup_networking
     verify_clusters
     setup_kubeconfig

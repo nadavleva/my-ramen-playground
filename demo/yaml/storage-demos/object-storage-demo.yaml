@@ -1,0 +1,368 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Object Storage S3 VSAN Demo
+# This demonstrates S3-compatible object storage scenarios
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: object-storage-demo
+  labels:
+    app.kubernetes.io/name: object-storage-demo
+    ramendr.openshift.io/protected: "true"
+    storage-demo-type: "object-s3"
+
+---
+# Object Bucket Claim for S3-compatible storage
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: vsan-bucket-claim
+  namespace: object-storage-demo
+  labels:
+    app: s3-demo
+    ramendr.openshift.io/protected: "true"
+    storage-type: object
+spec:
+  generateBucketName: vsan-demo
+  storageClassName: rook-ceph-bucket
+  additionalConfig:
+    bucketclass: "standard"  # Optional: specify bucket class
+
+---
+# Application using S3 object storage
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-client
+  namespace: object-storage-demo
+  labels:
+    app: s3-client
+    storage-demo-type: "object-s3"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3-client
+  template:
+    metadata:
+      labels:
+        app: s3-client
+    spec:
+      containers:
+      - name: s3-client
+        image: minio/mc:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "=== Initializing S3 Object Storage Demo ==="
+          
+          # Wait for bucket to be ready
+          while [ ! -f /bucket-config/BUCKET_NAME ]; do
+            echo "Waiting for bucket configuration..."
+            sleep 10
+          done
+          
+          # Read bucket configuration from mounted secret/configmap
+          export BUCKET_NAME=$(cat /bucket-config/BUCKET_NAME 2>/dev/null || echo "default-bucket")
+          export AWS_ACCESS_KEY_ID=$(cat /bucket-credentials/AWS_ACCESS_KEY_ID 2>/dev/null || echo "admin")
+          export AWS_SECRET_ACCESS_KEY=$(cat /bucket-credentials/AWS_SECRET_ACCESS_KEY 2>/dev/null || echo "admin123")
+          export BUCKET_HOST=$(cat /bucket-config/BUCKET_HOST 2>/dev/null || echo "rook-ceph-rgw-my-store.rook-ceph.svc.cluster.local")
+          
+          echo "Bucket Name: $BUCKET_NAME"
+          echo "Bucket Host: $BUCKET_HOST"
+          
+          # Configure mc (MinIO Client)
+          mc alias set rook-s3 http://${BUCKET_HOST} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY}
+          
+          # Test bucket access
+          echo "Testing bucket access..."
+          mc ls rook-s3/ || echo "Bucket not yet accessible, will retry..."
+          
+          # Create directory structure for VSAN-like demo
+          echo "=== Creating VSAN-like directory structure ==="
+          mc mb rook-s3/${BUCKET_NAME}/vsan-datastore 2>/dev/null || true
+          mc mb rook-s3/${BUCKET_NAME}/vsan-metadata 2>/dev/null || true
+          mc mb rook-s3/${BUCKET_NAME}/vsan-snapshots 2>/dev/null || true
+          
+          # Start continuous operations
+          counter=1
+          while true; do
+            timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+            
+            echo "=== S3 Operation Cycle $counter - $timestamp ==="
+            
+            # Create test objects (simulating VSAN datastore operations)
+            cat > /tmp/vsan-metadata-${counter}.json <<EOF
+          {
+            "timestamp": "$timestamp",
+            "operation_id": $counter,
+            "storage_type": "s3-object",
+            "datastore": "vsan-demo",
+            "objects_created": $counter,
+            "demo_type": "ramendr-vsan",
+            "cluster_info": {
+              "namespace": "object-storage-demo",
+              "bucket": "$BUCKET_NAME",
+              "storage_class": "rook-ceph-bucket"
+            }
+          }
+          EOF
+            
+            # Upload metadata
+            mc cp /tmp/vsan-metadata-${counter}.json rook-s3/${BUCKET_NAME}/vsan-metadata/
+            
+            # Create data file
+            echo "VSAN Data File $counter - Created at $timestamp" > /tmp/data-file-${counter}.txt
+            mc cp /tmp/data-file-${counter}.txt rook-s3/${BUCKET_NAME}/vsan-datastore/
+            
+            # Create snapshot marker
+            echo "Snapshot marker $counter at $timestamp" > /tmp/snapshot-${counter}.marker
+            mc cp /tmp/snapshot-${counter}.marker rook-s3/${BUCKET_NAME}/vsan-snapshots/
+            
+            # List bucket contents periodically
+            if [ $((counter % 5)) -eq 0 ]; then
+              echo "=== Current bucket contents ==="
+              mc ls rook-s3/${BUCKET_NAME}/ --recursive | tail -20
+              
+              echo "=== Storage statistics ==="
+              echo "Total objects: $(mc ls rook-s3/${BUCKET_NAME}/ --recursive | wc -l)"
+            fi
+            
+            # Cleanup old temp files
+            rm -f /tmp/vsan-metadata-${counter}.json /tmp/data-file-${counter}.txt /tmp/snapshot-${counter}.marker
+            
+            # Prevent infinite growth - remove old objects (keep last 50)
+            if [ $counter -gt 50 ]; then
+              old_counter=$((counter - 50))
+              mc rm rook-s3/${BUCKET_NAME}/vsan-metadata/vsan-metadata-${old_counter}.json 2>/dev/null || true
+              mc rm rook-s3/${BUCKET_NAME}/vsan-datastore/data-file-${old_counter}.txt 2>/dev/null || true
+              mc rm rook-s3/${BUCKET_NAME}/vsan-snapshots/snapshot-${old_counter}.marker 2>/dev/null || true
+            fi
+            
+            counter=$((counter + 1))
+            sleep 30
+          done
+        env:
+        - name: MC_CONFIG_DIR
+          value: "/tmp/.mc"
+        volumeMounts:
+        - name: bucket-config
+          mountPath: /bucket-config
+          readOnly: true
+        - name: bucket-credentials
+          mountPath: /bucket-credentials
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+      volumes:
+      - name: bucket-config
+        configMap:
+          name: vsan-bucket-claim
+          optional: true
+      - name: bucket-credentials
+        secret:
+          secretName: vsan-bucket-claim
+          optional: true
+
+---
+# S3 Monitor deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-monitor
+  namespace: object-storage-demo
+  labels:
+    app: s3-monitor
+    storage-demo-type: "object-s3"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3-monitor
+  template:
+    metadata:
+      labels:
+        app: s3-monitor
+    spec:
+      containers:
+      - name: monitor
+        image: minio/mc:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Starting S3 Storage Monitor..."
+          
+          # Wait for configuration
+          while [ ! -f /bucket-config/BUCKET_NAME ]; do
+            echo "Waiting for bucket configuration..."
+            sleep 10
+          done
+          
+          export BUCKET_NAME=$(cat /bucket-config/BUCKET_NAME 2>/dev/null || echo "default-bucket")
+          export AWS_ACCESS_KEY_ID=$(cat /bucket-credentials/AWS_ACCESS_KEY_ID 2>/dev/null || echo "admin")
+          export AWS_SECRET_ACCESS_KEY=$(cat /bucket-credentials/AWS_SECRET_ACCESS_KEY 2>/dev/null || echo "admin123")
+          export BUCKET_HOST=$(cat /bucket-config/BUCKET_HOST 2>/dev/null || echo "rook-ceph-rgw-my-store.rook-ceph.svc.cluster.local")
+          
+          # Configure mc
+          mc alias set rook-s3 http://${BUCKET_HOST} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY}
+          
+          while true; do
+            clear 2>/dev/null || true
+            echo "=== S3 Object Storage VSAN Demo Monitor ==="
+            echo "Time: $(date)"
+            echo "Bucket: $BUCKET_NAME"
+            echo "Storage Type: S3-Compatible Object Storage"
+            echo "Provider: Rook Ceph RGW"
+            echo ""
+            
+            echo "=== Bucket Statistics ==="
+            if mc ls rook-s3/${BUCKET_NAME}/ >/dev/null 2>&1; then
+              echo "✅ Bucket accessible"
+              total_objects=$(mc ls rook-s3/${BUCKET_NAME}/ --recursive 2>/dev/null | wc -l)
+              echo "Total objects: $total_objects"
+              
+              # Count objects by type
+              metadata_count=$(mc ls rook-s3/${BUCKET_NAME}/vsan-metadata/ 2>/dev/null | wc -l)
+              data_count=$(mc ls rook-s3/${BUCKET_NAME}/vsan-datastore/ 2>/dev/null | wc -l)
+              snapshot_count=$(mc ls rook-s3/${BUCKET_NAME}/vsan-snapshots/ 2>/dev/null | wc -l)
+              
+              echo "  - Metadata objects: $metadata_count"
+              echo "  - Data objects: $data_count"
+              echo "  - Snapshot markers: $snapshot_count"
+            else
+              echo "❌ Bucket not accessible"
+            fi
+            
+            echo ""
+            echo "=== Recent Objects (last 10) ==="
+            mc ls rook-s3/${BUCKET_NAME}/ --recursive 2>/dev/null | tail -10 || echo "No objects found"
+            
+            echo ""
+            echo "=== Bucket Info ==="
+            mc stat rook-s3/${BUCKET_NAME}/ 2>/dev/null || echo "Bucket stats not available"
+            
+            sleep 30
+          done
+        env:
+        - name: MC_CONFIG_DIR
+          value: "/tmp/.mc"
+        volumeMounts:
+        - name: bucket-config
+          mountPath: /bucket-config
+          readOnly: true
+        - name: bucket-credentials
+          mountPath: /bucket-credentials
+          readOnly: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 150m
+            memory: 128Mi
+      volumes:
+      - name: bucket-config
+        configMap:
+          name: vsan-bucket-claim
+          optional: true
+      - name: bucket-credentials
+        secret:
+          secretName: vsan-bucket-claim
+          optional: true
+
+---
+# ConfigMap for S3 testing utilities
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-storage-tests
+  namespace: object-storage-demo
+  labels:
+    app: s3-demo
+data:
+  test-s3-operations.sh: |
+    #!/bin/bash
+    echo "=== S3 Object Storage Operations Test ==="
+    
+    # Configuration
+    export BUCKET_NAME=$(cat /bucket-config/BUCKET_NAME 2>/dev/null || echo "default-bucket")
+    export AWS_ACCESS_KEY_ID=$(cat /bucket-credentials/AWS_ACCESS_KEY_ID 2>/dev/null || echo "admin")
+    export AWS_SECRET_ACCESS_KEY=$(cat /bucket-credentials/AWS_SECRET_ACCESS_KEY 2>/dev/null || echo "admin123")
+    export BUCKET_HOST=$(cat /bucket-config/BUCKET_HOST 2>/dev/null || echo "rook-ceph-rgw-my-store.rook-ceph.svc.cluster.local")
+    
+    # Configure mc
+    mc alias set rook-s3 http://${BUCKET_HOST} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY}
+    
+    echo "Testing basic S3 operations..."
+    
+    # Test 1: Create test file
+    echo "Test data for S3 operations - $(date)" > /tmp/s3-test.txt
+    
+    # Test 2: Upload file
+    echo "Uploading test file..."
+    mc cp /tmp/s3-test.txt rook-s3/${BUCKET_NAME}/test/
+    
+    # Test 3: List objects
+    echo "Listing objects..."
+    mc ls rook-s3/${BUCKET_NAME}/test/
+    
+    # Test 4: Download file
+    echo "Downloading test file..."
+    mc cp rook-s3/${BUCKET_NAME}/test/s3-test.txt /tmp/s3-download.txt
+    
+    # Test 5: Verify download
+    echo "Verifying download..."
+    if cmp -s /tmp/s3-test.txt /tmp/s3-download.txt; then
+      echo "✅ Upload/Download test passed"
+    else
+      echo "❌ Upload/Download test failed"
+    fi
+    
+    # Test 6: Remove test files
+    echo "Cleaning up test files..."
+    mc rm rook-s3/${BUCKET_NAME}/test/s3-test.txt
+    rm -f /tmp/s3-test.txt /tmp/s3-download.txt
+    
+    echo "S3 operations test completed!"
+  
+  performance-test.sh: |
+    #!/bin/bash
+    echo "=== S3 Performance Test ==="
+    
+    # Configuration
+    export BUCKET_NAME=$(cat /bucket-config/BUCKET_NAME 2>/dev/null || echo "default-bucket")
+    export AWS_ACCESS_KEY_ID=$(cat /bucket-credentials/AWS_ACCESS_KEY_ID 2>/dev/null || echo "admin")
+    export AWS_SECRET_ACCESS_KEY=$(cat /bucket-credentials/AWS_SECRET_ACCESS_KEY 2>/dev/null || echo "admin123")
+    export BUCKET_HOST=$(cat /bucket-config/BUCKET_HOST 2>/dev/null || echo "rook-ceph-rgw-my-store.rook-ceph.svc.cluster.local")
+    
+    mc alias set rook-s3 http://${BUCKET_HOST} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY}
+    
+    # Create test files of different sizes
+    echo "Creating test files..."
+    dd if=/dev/zero of=/tmp/1mb-test bs=1M count=1 2>/dev/null
+    dd if=/dev/zero of=/tmp/10mb-test bs=1M count=10 2>/dev/null
+    
+    # Upload performance test
+    echo "Testing upload performance..."
+    time mc cp /tmp/1mb-test rook-s3/${BUCKET_NAME}/perf-test/
+    time mc cp /tmp/10mb-test rook-s3/${BUCKET_NAME}/perf-test/
+    
+    # Download performance test
+    echo "Testing download performance..."
+    time mc cp rook-s3/${BUCKET_NAME}/perf-test/1mb-test /tmp/1mb-download
+    time mc cp rook-s3/${BUCKET_NAME}/perf-test/10mb-test /tmp/10mb-download
+    
+    # Cleanup
+    mc rm rook-s3/${BUCKET_NAME}/perf-test/1mb-test
+    mc rm rook-s3/${BUCKET_NAME}/perf-test/10mb-test
+    rm -f /tmp/*mb-*
+    
+    echo "Performance test completed!"

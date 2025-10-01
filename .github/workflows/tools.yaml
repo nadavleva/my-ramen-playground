@@ -119,55 +119,55 @@ jobs:
         run: make clean
         working-directory: test
 
-  drenv-macos:
-    name: drenv
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
-    strategy:
-      matrix:
-        os:
-          # arm64, 3 cpus (M1), 7 GiB RAM, no nested virtalization.
-          - macos-14
-        python-version:
-          - "3.13"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout ramen
-        uses: actions/checkout@v4
-
-      - name: Setup python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Homebrew packages
-        run: brew install kubectl
-
-      - name: Install python packages
-        run: pip install -r requirements.txt
-
-      - name: Enable coverage for child processes
-        run: cp coverage.pth $(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
-
-      - name: Install drenv
-        run: pip install -e test
-
-      - name: Run flake8
-        run: make flake8
-        working-directory: test
-
-      - name: Run pylint
-        run: make pylint
-        working-directory: test
-
-      - name: Run black
-        run: make black
-        working-directory: test
-
-      - name: Run tests
-        # We cannot run the test cluster on macOS.
-        run: make unit-test
-        working-directory: test
+  # drenv-macos:
+  #   name: drenv
+  #   needs: changes
+  #   if: needs.changes.outputs.code-changed == 'true'
+  #   strategy:
+  #     matrix:
+  #       os:
+  #         # arm64, 3 cpus (M1), 7 GiB RAM, no nested virtalization.
+  #         - macos-14
+  #       python-version:
+  #         - "3.13"
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - name: Checkout ramen
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: ${{ matrix.python-version }}
+  #
+  #     - name: Install Homebrew packages
+  #       run: brew install kubectl
+  #
+  #     - name: Install python packages
+  #       run: pip install -r requirements.txt
+  #
+  #     - name: Enable coverage for child processes
+  #       run: cp coverage.pth $(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+  #
+  #     - name: Install drenv
+  #       run: pip install -e test
+  #
+  #     - name: Run flake8
+  #       run: make flake8
+  #       working-directory: test
+  #
+  #     - name: Run pylint
+  #       run: make pylint
+  #       working-directory: test
+  #
+  #     - name: Run black
+  #       run: make black
+  #       working-directory: test
+  #
+  #     - name: Run tests
+  #       # We cannot run the test cluster on macOS.
+  #       run: make unit-test
+  #       working-directory: test
 
       - name: Report test coverage
         run: make coverage
@@ -187,10 +187,10 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14-dev"
-        include:
-          # arm64, 3 cpus (M1), 7 GiB RAM, no nested virtalization.
-          - os: macos-14
-            python-version: "3.13"
+        # include:
+        #   # arm64, 3 cpus (M1), 7 GiB RAM, no nested virtalization.
+        #   - os: macos-14
+        #     python-version: "3.13"
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout source

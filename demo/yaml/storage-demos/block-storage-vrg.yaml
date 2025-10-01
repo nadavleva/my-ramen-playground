@@ -1,0 +1,65 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# VolumeReplicationGroup for Block Storage SAN Demo
+# This protects the Rook Ceph RBD storage with RamenDR
+
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: VolumeReplicationGroup
+metadata:
+  name: block-storage-vrg
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+    ramendr.openshift.io/demo: "true"
+    storage-demo-type: "block-san"
+spec:
+  # Required: PVC selector to identify which PVCs to protect
+  pvcSelector:
+    matchLabels:
+      app: nginx-block
+
+  # Required: Replication state (primary = active, secondary = standby)
+  replicationState: primary
+
+  # Required: S3 profiles for metadata storage
+  s3Profiles:
+  - minio-s3
+
+  # Optional: Action for DR operations
+  action: Relocate
+
+  # Optional: Async replication configuration for Block storage
+  async:
+    # Required for async: scheduling interval for replication
+    # For SAN scenarios, use more frequent replication
+    schedulingInterval: 2m
+
+    # Volume replication class selector
+    replicationClassSelector:
+      matchLabels:
+        ramendr.openshift.io/replicationID: ramen-volsync
+
+    # Volume snapshot class selector (for point-in-time backups)
+    volumeSnapshotClassSelector:
+      matchLabels:
+        velero.io/csi-volumesnapshot-class: "true"
+
+  # Optional: Kubernetes object protection (in addition to PVCs)
+  kubeObjectProtection:
+    # Capture interval for Kubernetes metadata
+    # For SAN scenarios, capture configuration frequently
+    captureInterval: 5m
+
+    # Select all objects in the namespace for protection
+    kubeObjectSelector:
+      matchLabels:
+        app: nginx-block
+
+  # Optional: Sync replication configuration (alternative to async)
+  # Uncomment below for synchronous replication testing
+  # sync:
+  #   replicationClassSelector:
+  #     matchLabels:
+  #       ramendr.openshift.io/replicationID: ramen-ceph-sync

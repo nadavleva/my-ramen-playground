@@ -3,6 +3,44 @@
 This guide shows how to run the complete RamenDR demo using **minikube** instead of kind clusters.
 
 ## ✅ **Prerequisites**
+- **vCPUs:** 2+ per cluster (4+ recommended for better performance)
+- **RAM:** 4GB minimum per cluster, 8GB recommended
+- **Docker** (for the `docker` driver)
+- **minikube**
+- **kubectl**
+- **helm**
+
+## Storage Backend Options
+
+### Option A: HostPath Storage (Default - Simple)
+```bash
+# Uses minikube's default hostpath storage
+./demo/scripts/minikube_setup.sh
+```
+
+### Option B: Ceph Storage (Advanced - Production-like)
+```bash
+# Setup with Ceph distributed storage
+./demo/scripts/minikube_setup.sh --storage-backend=ceph
+
+# Additional requirements for Ceph:
+# - Extra 2GB RAM per cluster
+# - Block devices for OSDs (can be set in the Block Device Setup)
+# - Longer setup time (~10-15 minutes
+
+## Block Device Setup
+
+Each DR cluster requires a dedicated block device for Ceph OSD. These are typically created as loop devices backed by image files:
+
+```bash
+# Example for two DR clusters
+sudo mkdir -p /var/lib/minikube-disks/ramen-dr1
+sudo mkdir -p /var/lib/minikube-disks/ramen-dr2
+sudo dd if=/dev/zero of=/var/lib/minikube-disks/ramen-dr1/ceph-osd.img bs=1G count=10
+sudo dd if=/dev/zero of=/var/lib/minikube-disks/ramen-dr2/ceph-osd.img bs=1G count=10
+sudo losetup /dev/loop0 /var/lib/minikube-disks/ramen-dr1/ceph-osd.img
+sudo losetup /dev/loop1 /var/lib/minikube-disks/ramen-dr2/ceph-osd.img
+```
 
 ### **Required Tools:**
 ```bash
@@ -414,6 +452,486 @@ kubectl get pvc -A --context=ramen-dr1
 - Working with limited system resources
 - Focus on application testing rather than infrastructure
 
+## 🗄️ **Storage Demo: Rook Ceph SAN/VSAN Scenarios**
+
+This section demonstrates storage-focused disaster recovery scenarios using Rook Ceph to provide different storage types (Block, File, and Object) for testing SAN and VSAN replication patterns.
+
+### **Prerequisites for Storage Demo**
+
+Before running the storage demo, ensure your minikube clusters are configured with adequate resources:
+
+```bash
+# Recommended minikube settings for Ceph
+minikube start --profile=ramen-dr1 --memory=6144 --cpus=3 --disk-size=20gb
+minikube start --profile=ramen-dr2 --memory=6144 --cpus=3 --disk-size=20gb
+minikube start --profile=ramen-hub --memory=4096 --cpus=2 --disk-size=10gb
+```
+
+**⚠️ Important**: Ceph requires more resources than basic demos. Each DR cluster needs at least 6GB RAM and 3 CPUs.
+
+### **Storage Types Supported**
+
+| Storage Type | Use Case | StorageClass | Access Mode | Replication Method |
+|--------------|----------|--------------|-------------|------------------|
+| **Block (RBD)** | Traditional SAN | `rook-ceph-block` | RWO | VolSync (async) |
+| **File (CephFS)** | Shared file storage | `rook-cephfs` | RWX | VolSync (async) |
+| **Object (S3)** | VSAN metadata | `rook-ceph-bucket` | N/A | Object replication |
+
+### **Quick Start: Storage-Only Demo**
+
+**Step 1: Setup Basic Clusters**
+```bash
+# Setup minikube clusters (if not already done)
+./demo/scripts/minikube_setup.sh
+
+# Setup OCM for cluster management
+./demo/scripts/set-ocm-using-clustadmin.sh
+./demo/scripts/setup-ocm-resources.sh
+```
+
+**Step 2: Deploy Rook Ceph Storage**
+```bash
+# Install Rook Ceph on DR clusters only
+./demo/scripts/storage/set_ceph_storage.sh
+
+# Verify Ceph cluster health
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
+kubectl --context=ramen-dr2 -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
+```
+
+**Step 3: Install Storage Dependencies**
+```bash
+# Install VolSync and other storage dependencies
+./demo/scripts/install-storage-dependencies.sh
+./demo/scripts/install-missing-resource-classes.sh
+```
+
+**Step 4: Install RamenDR Operators**
+```bash
+# Install RamenDR with storage focus
+echo "3" | ./demo/scripts/minikube_quick-install.sh
+```
+
+**Step 5: Verify Storage Classes**
+```bash
+# Check available storage classes
+kubectl --context=ramen-dr1 get storageclass
+kubectl --context=ramen-dr2 get storageclass
+
+# Expected output should include:
+# - rook-ceph-block (for SAN scenarios)  
+# - rook-cephfs (for shared storage)
+# - standard (minikube default)
+```
+
+### **Demo Scenarios**
+
+#### **Scenario 1: Block Storage SAN Demo**
+
+Test traditional SAN-like block storage replication:
+
+```bash
+# Deploy nginx application with block storage
+kubectl --context=ramen-dr1 apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: block-storage-demo
+  labels:
+    ramendr.openshift.io/protected: "true"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-block-pvc
+  namespace: block-storage-demo
+  labels:
+    app: nginx-block
+    ramendr.openshift.io/protected: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: rook-ceph-block
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-block
+  namespace: block-storage-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-block
+  template:
+    metadata:
+      labels:
+        app: nginx-block
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: storage
+          mountPath: /usr/share/nginx/html
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "<h1>Block Storage SAN Demo</h1>" > /usr/share/nginx/html/index.html
+          echo "<p>Storage Type: Rook Ceph RBD (Block)</p>" >> /usr/share/nginx/html/index.html
+          echo "<p>Timestamp: \$(date)</p>" >> /usr/share/nginx/html/index.html
+          echo "<p>Node: \$(hostname)</p>" >> /usr/share/nginx/html/index.html
+          nginx -g "daemon off;"
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: nginx-block-pvc
+EOF
+
+# Create VRG for protection
+kubectl --context=ramen-dr1 apply -f - <<EOF
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: VolumeReplicationGroup
+metadata:
+  name: block-storage-vrg
+  namespace: block-storage-demo
+spec:
+  pvcSelector:
+    matchLabels:
+      app: nginx-block
+  replicationState: primary
+  s3Profiles:
+  - minio-s3
+  async:
+    schedulingInterval: 2m
+    replicationClassSelector:
+      matchLabels:
+        ramendr.openshift.io/replicationID: ramen-volsync
+    volumeSnapshotClassSelector:
+      matchLabels:
+        velero.io/csi-volumesnapshot-class: "true"
+EOF
+
+# Test the application
+kubectl --context=ramen-dr1 get pods -n block-storage-demo
+kubectl --context=ramen-dr1 get vrg -n block-storage-demo
+```
+
+#### **Scenario 2: File Storage (CephFS) Demo**
+
+Test shared file storage scenarios:
+
+```bash
+# Deploy shared file storage application
+kubectl --context=ramen-dr1 apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: file-storage-demo
+  labels:
+    ramendr.openshift.io/protected: "true"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-file-pvc
+  namespace: file-storage-demo
+  labels:
+    app: file-demo
+    ramendr.openshift.io/protected: "true"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: rook-cephfs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-writer
+  namespace: file-storage-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: file-writer
+  template:
+    metadata:
+      labels:
+        app: file-writer
+    spec:
+      containers:
+      - name: writer
+        image: busybox
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          while true; do
+            echo "Writer \$(hostname) - \$(date)" >> /shared/log.txt
+            sleep 30
+          done
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /shared
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-file-pvc
+EOF
+
+# Verify shared access
+kubectl --context=ramen-dr1 get pods -n file-storage-demo
+kubectl --context=ramen-dr1 exec -n file-storage-demo deployment/file-writer -- tail -f /shared/log.txt
+```
+
+#### **Scenario 3: Object Storage VSAN Demo**
+
+Test object storage for VSAN-like scenarios:
+
+```bash
+# Create object bucket claim
+kubectl --context=ramen-dr1 apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: object-storage-demo
+---
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: vsan-bucket
+  namespace: object-storage-demo
+spec:
+  generateBucketName: vsan-demo
+  storageClassName: rook-ceph-bucket
+EOF
+
+# Check bucket creation
+kubectl --context=ramen-dr1 get obc -n object-storage-demo
+kubectl --context=ramen-dr1 get secret -n object-storage-demo
+```
+
+### **Troubleshooting Storage Issues**
+
+#### **Common Ceph Issues**
+
+**1. Ceph Cluster Not Ready**
+```bash
+# Check Ceph cluster status
+kubectl --context=ramen-dr1 -n rook-ceph get cephcluster
+
+# Debug with toolbox
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph status
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd status
+```
+
+**2. CephFS Creation Timeout**
+```bash
+# Check CephFS status
+kubectl --context=ramen-dr1 -n rook-ceph get cephfilesystem myfs -o wide
+
+# Check MDS pods (required for CephFS)
+kubectl --context=ramen-dr1 -n rook-ceph get pods -l app=rook-ceph-mds
+
+# Debug MDS deployment
+kubectl --context=ramen-dr1 -n rook-ceph describe cephfilesystem myfs
+
+# If stuck, delete and recreate CephFS
+kubectl --context=ramen-dr1 -n rook-ceph delete cephfilesystem myfs
+kubectl --context=ramen-dr1 apply -f demo/yaml/storage-demos/ceph-filesystem.yaml
+```
+
+**3. PVC Stuck in Pending**
+```bash
+# Check storage class
+kubectl --context=ramen-dr1 get storageclass
+
+# Check provisioner logs
+kubectl --context=ramen-dr1 -n rook-ceph logs deployment/rook-ceph-operator
+
+# Check CSI driver
+kubectl --context=ramen-dr1 -n rook-ceph get pods -l app=csi-rbdplugin
+kubectl --context=ramen-dr1 -n rook-ceph get pods -l app=csi-cephfsplugin
+```
+
+**4. Insufficient Storage Space**
+```bash
+# Check available space in Ceph
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph df
+
+# Check OSD status
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd df
+
+# Check disk usage on minikube node
+minikube ssh -p ramen-dr1 -- df -h
+```
+
+**5. Operator/Component Issues**
+```bash
+# Check Rook operator status
+kubectl --context=ramen-dr1 -n rook-ceph get pods -l app=rook-ceph-operator
+
+# Check operator logs
+kubectl --context=ramen-dr1 -n rook-ceph logs deployment/rook-ceph-operator --tail=50
+
+# Check all Ceph components
+kubectl --context=ramen-dr1 -n rook-ceph get pods
+```
+
+**6. Script Timeout Issues**
+If the storage setup script times out during long operations:
+
+```bash
+# Check if resources were created despite timeout
+kubectl --context=ramen-dr1 -n rook-ceph get all
+
+# Monitor CephFS creation progress
+watch kubectl --context=ramen-dr1 -n rook-ceph get cephfilesystem myfs
+
+# Check events for error messages
+kubectl --context=ramen-dr1 -n rook-ceph get events --sort-by=.metadata.creationTimestamp
+```
+
+**7. Webhook and API Validation Errors**
+When applying YAML files results in validation errors:
+
+```bash
+# Common webhook/validation error: "strict decoding error: unknown field"
+# This means the YAML contains fields not supported by the CRD version
+
+# Check CRD version and supported fields
+kubectl get crd cephclusters.ceph.rook.io -o yaml | grep -A 10 openAPIV3Schema
+
+# Retry with exponential backoff (built into our scripts)
+# If persistent, check for invalid fields in YAML files
+
+# For stuck resources with finalizers
+kubectl --context=ramen-dr1 -n rook-ceph patch cephfilesystem myfs --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]'
+```
+
+**8. Zero OSDs Problem**
+If Ceph shows "0 osds: 0 up, 0 in":
+
+```bash
+# This usually means no storage devices were found
+# Check OSD preparation logs
+kubectl --context=ramen-dr1 -n rook-ceph logs -l app=rook-ceph-osd-prepare
+
+# Check if devices are available
+kubectl --context=ramen-dr1 -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd tree
+
+# For minikube, ensure storage directories exist
+minikube ssh -p ramen-dr1 -- "sudo ls -la /var/lib/rook/"
+
+# Recreate cluster with validated configuration
+kubectl --context=ramen-dr1 -n rook-ceph delete cephcluster rook-ceph
+kubectl --context=ramen-dr1 apply -f demo/yaml/storage-demos/ceph-cluster-simple.yaml
+```
+
+**9. Finalizer Stuck Resources**
+When resources won't delete due to finalizers:
+
+```bash
+# Check for finalizers
+kubectl --context=ramen-dr1 -n rook-ceph get cephfilesystem myfs -o yaml | grep -A 5 finalizers
+
+# Remove finalizers (use with caution)
+kubectl --context=ramen-dr1 -n rook-ceph patch cephfilesystem myfs --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]'
+
+# Force delete if still stuck
+kubectl --context=ramen-dr1 -n rook-ceph delete cephfilesystem myfs --force --grace-period=0
+```
+
+#### **Performance Tuning**
+
+**For Better Ceph Performance:**
+```bash
+# Increase minikube resources
+minikube stop --profile=ramen-dr1
+minikube start --profile=ramen-dr1 --memory=8192 --cpus=4
+
+# Use faster storage if available
+minikube start --profile=ramen-dr1 --disk-size=30gb
+```
+
+### **Storage Demo Cleanup**
+
+```bash
+# Clean up demo applications
+kubectl --context=ramen-dr1 delete namespace block-storage-demo
+kubectl --context=ramen-dr1 delete namespace file-storage-demo
+kubectl --context=ramen-dr1 delete namespace object-storage-demo
+
+# Clean up Ceph (optional)
+kubectl --context=ramen-dr1 -n rook-ceph delete cephcluster rook-ceph
+kubectl --context=ramen-dr2 -n rook-ceph delete cephcluster rook-ceph
+
+# Remove Rook completely (optional)
+kubectl --context=ramen-dr1 delete namespace rook-ceph
+kubectl --context=ramen-dr2 delete namespace rook-ceph
+```
+
+### **Advanced Storage Scenarios**
+
+#### **Multi-StorageClass Failover**
+Test applications using multiple storage types simultaneously:
+
+```bash
+# Deploy app with both block and file storage
+kubectl --context=ramen-dr1 apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: multi-storage-demo
+---
+# Block storage for database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-block-pvc
+  namespace: multi-storage-demo
+  labels:
+    app: multi-demo
+    storage-type: block
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 2Gi}}
+  storageClassName: rook-ceph-block
+---
+# File storage for shared content
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: web-file-pvc
+  namespace: multi-storage-demo
+  labels:
+    app: multi-demo
+    storage-type: file
+spec:
+  accessModes: [ReadWriteMany]
+  resources: {requests: {storage: 1Gi}}
+  storageClassName: rook-cephfs
+EOF
+```
+
+#### **Storage Performance Testing**
+Use fio to test storage performance:
+
+```bash
+kubectl --context=ramen-dr1 run fio-test --image=ljishen/fio \
+  --rm -i --restart=Never \
+  --overrides='{"spec":{"containers":[{"name":"fio-test","image":"ljishen/fio","command":["fio","--name=test","--ioengine=libaio","--direct=1","--bs=4k","--rw=randwrite","--size=100M","--numjobs=1","--time_based","--runtime=60"],"volumeMounts":[{"name":"test-vol","mountPath":"/data"}]}],"volumes":[{"name":"test-vol","persistentVolumeClaim":{"claimName":"fio-test-pvc"}}]}}'
+```
+
+---
+
 ## 📚 **Next Steps**
 
 After completing the minikube demo:
@@ -423,5 +941,6 @@ After completing the minikube demo:
 3. 📊 **Monitor Components**: `kubectl get pods -n ramen-system -A`
 4. 🧪 **Test with Real Apps**: Deploy your own applications with VRGs
 5. 🔄 **Practice DR Workflows**: Test different failure scenarios
+6. 🗄️ **Explore Storage**: Test different Ceph storage types and replication patterns
 
 Happy disaster recovery testing with minikube! 🚀

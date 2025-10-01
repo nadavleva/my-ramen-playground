@@ -1,0 +1,177 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Minikube-optimized Ceph Cluster configuration
+# This uses hostPath for OSDs since minikube doesn't have raw block devices
+
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+  labels:
+    ramendr-demo: "true"
+    cluster-type: "minikube"
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v18.2.2
+    allowUnsupported: false
+  
+  # Data directory on host
+  dataDirHostPath: /var/lib/rook
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+  
+  # Monitor configuration - single mon for demo
+  mon:
+    count: 1
+    allowMultiplePerNode: true
+    # Don't use PVCs for monitors in minikube demo
+    # volumeClaimTemplate:
+    #   spec:
+    #     storageClassName: standard
+    #     resources:
+    #       requests:
+    #         storage: 1Gi
+  
+  # Manager configuration  
+  mgr:
+    count: 1
+    allowMultiplePerNode: true
+    modules:
+    - name: pg_autoscaler
+      enabled: true
+    - name: rook
+      enabled: true
+  
+  # Dashboard configuration
+  dashboard:
+    enabled: true
+    ssl: false
+    
+  # Monitoring - disabled for demo performance
+  monitoring:
+    enabled: false
+    
+  # Network configuration
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+    # Host network not supported in this field
+        
+  # Crash collection - disabled for demo
+  crashCollector:
+    disable: true
+    
+  # Log collection - disabled for demo
+  logCollector:
+    enabled: false
+    
+  # Cleanup policy
+  cleanupPolicy:
+    confirmation: ""
+    sanitizeDisks:
+      method: quick
+      dataSource: zero
+      iteration: 1
+    
+  # Storage configuration - MINIKUBE SPECIFIC
+  storage:
+    useAllNodes: true
+    useAllDevices: false  # Don't use raw devices in minikube
+    
+    # Explicit storage configuration for minikube
+    config:
+      crushRoot: "default"
+      metadataDevice: ""
+      databaseSizeMB: "1024"
+      journalSizeMB: "1024"
+      osdsPerDevice: "1"
+      encryptedDevice: "false"
+      
+    # Define storage nodes with hostPath directories
+    nodes:
+    - name: "minikube"  # This should match the minikube node name
+      devices:
+      - name: "/var/lib/rook/osd0"  # Create hostPath-based OSD
+        config:
+          osdsPerDevice: "1"
+          deviceClass: "ssd"
+      - name: "/var/lib/rook/osd1"  # Second OSD for better demo
+        config:
+          osdsPerDevice: "1" 
+          deviceClass: "ssd"
+          
+  # Disruption management - relaxed for demo
+  disruptionManagement:
+    managePodBudgets: false
+    osdMaintenanceTimeout: 30
+    pgHealthCheckTimeout: 0
+    
+  # Health checks - more tolerant for single-node setup
+  healthCheck:
+    daemonHealth:
+      mon:
+        disabled: false
+        interval: 45s
+      osd:
+        disabled: false
+        interval: 60s
+      status:
+        disabled: false
+        interval: 60s
+    livenessProbe:
+      mon:
+        disabled: false
+      mgr:
+        disabled: false
+      osd:
+        disabled: false
+        
+  # Priority classes for better resource management
+  priorityClassNames:
+    mon: system-node-critical
+    osd: system-node-critical
+    mgr: system-cluster-critical
+    
+  # Resource requirements - minimal for minikube
+  resources:
+    mon:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    osd:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    mgr:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    prepareosd:
+      requests:
+        cpu: 100m
+        memory: 50Mi
+      limits:
+        cpu: 500m
+        memory: 200Mi
+    crashcollector:
+      requests:
+        cpu: 10m
+        memory: 60Mi
+      limits:
+        cpu: 100m
+        memory: 60Mi
