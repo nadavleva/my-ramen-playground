@@ -139,7 +139,7 @@ kubectl config delete-context ramen-dr2
 # 1. Setup minikube clusters
 ./demo/scripts/minikube_setup.sh
 
-# 2. Setup OCM resources (CRITICAL) - using clusteradm
+# 2. Setup OCM resources (CRITICAL) - using clusteradm (includes Policy Framework)
 ./demo/scripts/set-ocm-using-clustadmin.sh
 ./demo/scripts/setup-ocm-resources.sh
 
@@ -374,7 +374,82 @@ minikube delete --profile=ramen-dr2
 
 ### **Common Issues:**
 
-**1. Insufficient Resources:**
+**1. OCM Setup Issues:**
+
+**Token Retrieval Failures:**
+```bash
+# Error: "Error from server (NotFound): secrets "agent-registration-bootstrap" not found"
+# Solution: The script now waits for secret creation and uses multiple methods
+
+# Check if clustermanager exists:
+kubectl --context=ramen-hub get clustermanager
+
+# Manual token retrieval methods (in order of reliability):
+# Method 1: Using clusteradm (most reliable - extracts from join command)
+clusteradm get token --context ramen-hub
+
+# Method 2: From secret (fallback)
+kubectl --context=ramen-hub -n open-cluster-management get secret agent-registration-bootstrap -o jsonpath='{.data.token}' | base64 -d
+
+# Check secret existence:
+kubectl --context=ramen-hub -n open-cluster-management get secrets
+```
+
+**Cluster Join Failures:**
+```bash
+# Error: "net/http: invalid header field value for "Authorization""
+# Error: "token is missing"
+# These are often caused by token formatting issues
+
+# The script now automatically:
+# 1. Extracts token from clusteradm join command output (most reliable)
+# 2. Removes "token=" prefix from clusteradm output
+# 3. Cleans whitespace and hidden characters
+# 4. Provides manual join commands on failure
+
+# Manual join with proper token extraction:
+TOKEN=$(clusteradm get token --context ramen-hub | grep -oP '(?<=--hub-token )[^\s]+' | head -1)
+kubectl config use-context ramen-dr1
+clusteradm join --hub-token "$TOKEN" --hub-apiserver 'https://HUB_IP:8443' --wait --cluster-name 'ramen-dr1'
+
+# Then accept on hub:
+kubectl config use-context ramen-hub
+clusteradm accept --clusters ramen-dr1
+
+# Alternative manual acceptance:
+kubectl --context=ramen-hub patch managedcluster ramen-dr1 --type='merge' -p '{"spec":{"hubAcceptsClient":true}}'
+```
+
+**Hub Server URL Issues:**
+```bash
+# Debug hub connectivity:
+kubectl config view --raw -o jsonpath="{.clusters[?(@.name==\"ramen-hub\")].cluster.server}"
+minikube -p ramen-hub ip
+
+# Test connectivity:
+curl -k https://$(minikube -p ramen-hub ip):8443/api/v1/namespaces/kube-public/configmaps/cluster-info
+
+# If internal hostname resolution fails, check /etc/hosts:
+grep control-plane.minikube.internal /etc/hosts
+```
+
+**Verification Commands:**
+```bash
+# Check overall OCM status:
+kubectl --context=ramen-hub get managedcluster -o wide
+
+# Check klusterlet status on DR clusters:
+kubectl --context=ramen-dr1 get klusterlet -o wide
+kubectl --context=ramen-dr2 get klusterlet -o wide
+
+# Check placement decisions:
+kubectl --context=ramen-hub get placementdecision --all-namespaces
+
+# Look for successful join/accept in logs:
+kubectl --context=ramen-hub -n open-cluster-management logs deployment/cluster-manager-registration-controller --tail=20
+```
+
+**2. Insufficient Resources:**
 ```bash
 # Error: Not enough memory/CPU
 # Solution: Reduce cluster resources or increase system resources
@@ -859,6 +934,140 @@ minikube start --profile=ramen-dr1 --memory=8192 --cpus=4
 
 # Use faster storage if available
 minikube start --profile=ramen-dr1 --disk-size=30gb
+```
+
+### **OCM and RamenDR Integration Issues**
+
+#### **ManagedClusterView Issues (CRITICAL)**
+
+**Problem**: DRPC fails with `"failed to retrieve VRGs from clusters"` and `"missing ManagedClusterView conditions"`
+
+**Root Cause**: ManagedClusterView functionality missing in OCM v1.0.0 setup
+
+**⚠️ PARTIAL SOLUTION: OCM v1.0.0 + Addon Framework (Investigation Ongoing)**
+
+**Status**: OCM v1.0.0 components are running properly, but ManagedClusterView resources are created but never processed (no status updates). This appears to be a gap in OCM v1.0.0 MCV implementation or missing addon.
+
+**What We've Confirmed Works:**
+- OCM v1.0.0 installation and component deployment ✅
+- Work agent crash fixes (no more `unknown flag` errors) ✅  
+- Addon framework activation (via governance-policy-framework) ✅
+- MCV CRD exists and resources can be created ✅
+- DRPC workflow is fundamentally correct ✅
+
+**What Still Doesn't Work:**
+- ManagedClusterView resources have no status updates ❌
+- Work controller only runs ManifestWorkReplicaSetController ❌
+- No MCV-specific controller found in any OCM component ❌
+
+**Investigation Attempts:**
+- ✅ Installed governance-policy-framework addon (created addon infrastructure)
+- ❌ Tried custom application-manager addon (no proper installation strategy)
+- ❌ Tried ManagedClusterView feature gate (no effect)
+- ✅ Confirmed only built-in addons: `argocd`, `governance-policy-framework`
+
+**For Community Investigation:**
+The MCV functionality gap in OCM v1.0.0 needs further research:
+1. Check if MCV moved to a different OCM component or addon
+2. Investigate if specific OCM addon provides MCV (not available via clusteradm)
+3. Consider if RHACM vs upstream OCM has different MCV implementation
+4. Test with different OCM versions or installation methods
+
+```bash
+# 1. Check current OCM versions
+clusteradm version
+kubectl --context=ramen-hub get pods -n open-cluster-management-agent -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+
+# 2. Update ClusterManager to OCM v1.0.0
+kubectl --context=ramen-hub patch clustermanager cluster-manager --type='merge' -p='{"spec":{"registrationImagePullSpec":"quay.io/open-cluster-management/registration:v1.0.0","workImagePullSpec":"quay.io/open-cluster-management/work:v1.0.0","placementImagePullSpec":"quay.io/open-cluster-management/placement:v1.0.0"}}'
+
+# 3. Update Klusterlets to OCM v1.0.0
+kubectl --context=ramen-dr1 patch klusterlet klusterlet --type='merge' -p='{"spec":{"registrationImagePullSpec":"quay.io/open-cluster-management/registration:v1.0.0","workImagePullSpec":"quay.io/open-cluster-management/work:v1.0.0"}}'
+kubectl --context=ramen-dr2 patch klusterlet klusterlet --type='merge' -p='{"spec":{"registrationImagePullSpec":"quay.io/open-cluster-management/registration:v1.0.0","workImagePullSpec":"quay.io/open-cluster-management/work:v1.0.0"}}'
+
+# 4. Wait for work agents to restart (should be Running, not CrashLoopBackOff)
+kubectl --context=ramen-dr1 get pods -n open-cluster-management-agent
+kubectl --context=ramen-dr2 get pods -n open-cluster-management-agent
+
+# 5. Verify work controller is running on hub
+kubectl --context=ramen-hub get pods -n open-cluster-management-hub | grep work-controller
+```
+
+**Verification Commands:**
+```bash
+# Check work agents are healthy (no crashes)
+kubectl --context=ramen-dr1 get pods -n open-cluster-management-agent | grep work
+kubectl --context=ramen-dr2 get pods -n open-cluster-management-agent | grep work
+
+# Test ManagedClusterView functionality
+cat > /tmp/test-mcv.yaml << 'EOF'
+apiVersion: view.open-cluster-management.io/v1beta1
+kind: ManagedClusterView
+metadata:
+  name: test-vrg-view
+  namespace: ramen-dr1
+spec:
+  scope:
+    resource: volumereplicationgroups
+    namespace: nginx-test
+EOF
+
+kubectl --context=ramen-hub apply -f /tmp/test-mcv.yaml
+kubectl --context=ramen-hub describe managedclusterview test-vrg-view -n ramen-dr1
+
+# Check DRPC can now retrieve VRGs
+kubectl --context=ramen-hub logs -n ramen-system deployment/ramen-hub-operator --tail=10 | grep -i mcv
+```
+
+#### **DRPC Workflow Requirements**
+
+**❌ COMMON MISTAKE**: Trying to create applications via DRPC
+**✅ CORRECT APPROACH**: DRPC protects existing applications
+
+**Proper DRPC Workflow:**
+1. **Deploy application on preferred cluster FIRST**
+2. **Ensure PVC is bound and working**
+3. **Then create DRPC to protect the existing application**
+
+```bash
+# 1. Deploy nginx on preferred cluster (ramen-dr1)
+kubectl --context=ramen-dr1 apply -f demo/yaml/test-application/nginx-with-pvc.yaml
+
+# 2. Verify app is running with bound PVC
+kubectl --context=ramen-dr1 get pods,pvc -n nginx-test
+
+# 3. THEN create DRPC to protect it
+kubectl --context=ramen-hub apply -f demo/yaml/test-application/nginx-drpc.yaml
+
+# 4. Verify DRPC can see the application
+kubectl --context=ramen-hub get drpc -n nginx-test -o wide
+```
+
+#### **Storage Class Compatibility**
+
+**For Testing**: Use `standard` storage class (works reliably)
+**For Production**: Use Ceph storage classes after proper setup
+
+```bash
+# Check available storage classes
+kubectl --context=ramen-dr1 get storageclass
+
+# For quick testing, use standard storage class
+sed 's/storageClassName: rook-ceph-block/storageClassName: standard/' nginx-app.yaml | kubectl apply -f -
+```
+
+#### **OCM Policy Framework Missing**
+
+**Problem**: `no matches for kind "PlacementBinding"`
+
+**Solution**: OCM Policy Framework CRDs are now automatically installed by `set-ocm-using-clustadmin.sh`
+
+```bash
+# Verify Policy Framework CRDs exist
+kubectl --context=ramen-hub get crd | grep policy.open-cluster-management.io
+
+# If missing, they're installed by:
+./demo/scripts/set-ocm-using-clustadmin.sh
 ```
 
 ### **Storage Demo Cleanup**

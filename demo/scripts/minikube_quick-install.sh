@@ -34,6 +34,8 @@ check_kubeconfig_for_minikube() {
 check_kubeconfig_for_minikube
 check_kubectl
 
+# MCV functionality moved to setup-ocm-resources.sh for better separation of concerns
+
 # # Install storage dependencies (same as original)
 # install_storage_dependencies() {
 #     log_info "Installing storage replication dependencies..."
@@ -383,6 +385,8 @@ install_all_clusters() {
     log_success "🎉 Multi-cluster installation completed!"
     log_info "Hub operator: ramen-hub"
     log_info "DR operators: ${dr_contexts[*]}"
+    
+    # Note: MCV functionality is now handled in setup-ocm-resources.sh (step 3)
 }
 
 # Verify installation
@@ -417,27 +421,25 @@ create_sample_policy() {
     
     switch_context "ramen-hub" || return 1
     
-    local dr_policy_dir="$SCRIPT_DIR/../yaml/dr-policy"
+    local minikube_yaml_dir="$SCRIPT_DIR/../yaml/minikube"
     
-    # Apply DRPolicy - fallback to inline if external file fails
-    apply_yaml_file_safe "ramen-hub" "$dr_policy_dir/drpolicy.yaml" "DRPolicy" || {
-        log_info "Creating fallback DRPolicy..."
-        kubectl apply -f - <<EOF
-apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRPolicy
-metadata:
-  name: minikube-dr-policy
-  namespace: ramen-system
-spec:
-  drClusters:
-  - ramen-dr1
-  - ramen-dr2
-  schedulingInterval: 5m
-EOF
-    }
+    # Apply DRPolicy using external YAML
+    if [ -f "$minikube_yaml_dir/drpolicy.yaml" ]; then
+        log_info "Applying DRPolicy from external YAML..."
+        apply_yaml_with_timeout_warning "ramen-hub" "$minikube_yaml_dir/drpolicy.yaml" "DRPolicy creation"
+    else
+        log_error "DRPolicy YAML file not found: $minikube_yaml_dir/drpolicy.yaml"
+        return 1
+    fi
     
-    # Apply DRClusters if file exists
-    apply_yaml_file_safe "ramen-hub" "$dr_policy_dir/drclusters.yaml" "DRClusters"
+    # Apply DRClusters using external YAML
+    if [ -f "$minikube_yaml_dir/drclusters.yaml" ]; then
+        log_info "Applying DRClusters from external YAML..."
+        apply_yaml_with_timeout_warning "ramen-hub" "$minikube_yaml_dir/drclusters.yaml" "DRClusters creation"
+    else
+        log_error "DRClusters YAML file not found: $minikube_yaml_dir/drclusters.yaml"
+        return 1
+    fi
     
     log_success "Sample DR policy setup completed"
 }

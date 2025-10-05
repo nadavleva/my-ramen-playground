@@ -1,0 +1,19 @@
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr1
+  namespace: ramen-system
+  labels:
+    ramendr.openshift.io/environment: minikube
+spec:
+  s3ProfileName: minio-s3
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: ramen-dr2
+  namespace: ramen-system
+  labels:
+    ramendr.openshift.io/environment: minikube
+spec:
+  s3ProfileName: minio-s3

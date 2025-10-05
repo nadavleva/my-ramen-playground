@@ -116,6 +116,129 @@ else
     log_warning "ManagedClusterView CRD file not found at $MCV_CRD_FILE; skipping ManagedClusterView CRD install"
 fi
 
+# Install MCV addon after CRD is available - USING UTILS AND EXTERNAL YAML
+install_mcv_addon() {
+    log_step "🔧 Installing ManagedClusterView addon (upstream OCM approach)..."
+    
+    # Based on research: Upstream OCM requires manual MCV addon installation
+    # RHACM has it built-in, but upstream OCM needs explicit addon deployment
+    
+    switch_context "$HUB_PROFILE" || return 1
+    
+    log_info "Installing MCV addon using external YAML files and utility functions..."
+    
+    local mcv_yaml_dir="$SCRIPT_DIR/../yaml/mcv-addon"
+    
+    # Method 1: Create ClusterManagementAddon using utility function
+    log_info "Creating ClusterManagementAddon for managedclusterview-addon..."
+    if apply_yaml_with_timeout_warning "$HUB_PROFILE" "$mcv_yaml_dir/cluster-management-addon.yaml" "MCV ClusterManagementAddon" "30s"; then
+        log_success "ClusterManagementAddon created successfully"
+    else
+        log_warning "ClusterManagementAddon may already exist or failed to create"
+    fi
+    
+    # Method 2: Create ManagedClusterAddons for each DR cluster using templates and utils
+    for cluster in ramen-dr1 ramen-dr2; do
+        log_info "Creating MCV addon for $cluster..."
+        
+        # Use sed to replace template placeholder and apply with utility function
+        local temp_file="/tmp/mcv-addon-${cluster}.yaml"
+        sed "s/CLUSTER_NAME/$cluster/g" "$mcv_yaml_dir/managed-cluster-addon-template.yaml" > "$temp_file"
+        
+        if apply_yaml_with_timeout_warning "$HUB_PROFILE" "$temp_file" "MCV addon for $cluster" "15s"; then
+            log_success "MCV addon created for $cluster"
+        else
+            log_warning "MCV addon for $cluster may already exist"
+        fi
+        
+        # Clean up temp file
+        rm -f "$temp_file"
+    done
+    
+    # Method 3: Check if addon manager exists
+    log_info "Checking addon manager deployment..."
+    if ! kubectl get deployment cluster-manager-addon-manager -n open-cluster-management-hub >/dev/null 2>&1; then
+        log_warning "Addon manager not found - this may be why MCV doesn't work"
+        log_info "Upstream OCM may need addon manager for MCV functionality"
+    else
+        log_success "Addon manager found"
+    fi
+    
+    # Method 4: Test MCV functionality using external YAML and utils
+    log_info "Testing MCV functionality..."
+    sleep 15
+    
+    # Create test MCV using template and utility function
+    local test_mcv_file="/tmp/test-mcv-functionality.yaml"
+    sed "s/CLUSTER_NAME/ramen-dr1/g" "$mcv_yaml_dir/test-mcv.yaml" > "$test_mcv_file"
+    
+    if apply_yaml_with_timeout_warning "$HUB_PROFILE" "$test_mcv_file" "Test MCV" "10s"; then
+        log_info "Test MCV created, waiting for processing..."
+        sleep 10
+        
+        # Check if MCV gets status updates
+        local status=$(kubectl get managedclusterview test-mcv-functionality -n ramen-dr1 -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "None")
+        
+        if [ "$status" != "None" ] && [ -n "$status" ]; then
+            log_success "✅ MCV functionality working! (status: $status)"
+            # Clean up test MCV using utility function
+            safe_delete "$HUB_PROFILE" "managedclusterview" "test-mcv-functionality" "ramen-dr1"
+        else
+            log_warning "❌ MCV functionality still not working"
+            log_info "This is a known limitation with upstream OCM v1.0.0"
+            log_info "RHACM includes MCV controller, but upstream OCM requires additional components"
+            # Clean up test MCV even if it didn't work using utility function
+            safe_delete "$HUB_PROFILE" "managedclusterview" "test-mcv-functionality" "ramen-dr1"
+        fi
+    else
+        log_error "Failed to create test MCV"
+    fi
+    
+    # Clean up temp file
+    rm -f "$test_mcv_file"
+    
+    # Debug information
+    log_info "MCV addon installation completed. Debug info:"
+    log_info "- Available addons: $(clusteradm get addons 2>/dev/null || echo 'clusteradm get addons failed')"
+    log_info "- ClusterManagementAddon: $(kubectl get clustermanagementaddon managedclusterview-addon -o name 2>/dev/null || echo 'not found')"
+}
+
+# Call the MCV addon installation
+install_mcv_addon
+
+# Add debugging function for MCV components
+debug_mcv_components() {
+    log_step "🔍 Debugging MCV components..."
+    
+    switch_context "$HUB_PROFILE" || return 1
+    
+    echo "🔍 Checking MCV CRDs:"
+    kubectl get crd | grep managedclusterview || echo "❌ MCV CRDs missing"
+    
+    echo "🔍 Checking OCM controllers:"
+    kubectl get pods -n open-cluster-management
+    
+    echo "🔍 Checking addon manager:"
+    kubectl get pods -n open-cluster-management-hub -l app=cluster-manager-addon-manager 2>/dev/null || echo "❌ Addon manager missing"
+    
+    echo "🔍 Checking available addons:"
+    clusteradm get addons 2>/dev/null || echo "❌ clusteradm get addons failed"
+    
+    echo "🔍 Checking ClusterManagementAddons:"
+    kubectl get clustermanagementaddon || echo "❌ No ClusterManagementAddons found"
+    
+    echo "🔍 Checking ManagedClusterAddons:"
+    kubectl get managedclusteraddon -A || echo "❌ No ManagedClusterAddons found"
+    
+    echo "🔍 Checking MCV resources:"
+    kubectl get managedclusterviews --all-namespaces || echo "❌ No MCV resources found"
+    
+    for cluster in ramen-dr1 ramen-dr2; do
+        echo "🔍 Checking $cluster agents:"
+        kubectl get pods -n "$cluster" 2>/dev/null || echo "❌ No pods in $cluster namespace"
+    done
+}
+
 # Ensure legacy PlacementRule CRD is present if needed by operator
 PLACEMENTRULE_CRD_NAME="placementrules.apps.open-cluster-management.io"
 PLACEMENTRULE_CRD_FILE="$SCRIPT_DIR/../../hack/test/apps.open-cluster-management.io_placementrules_crd.yaml"

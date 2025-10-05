@@ -33,7 +33,16 @@ main() {
     
     if [ "$HUB_CRDS" -lt "$DR_CRDS" ]; then
         log_info "Installing missing CRDs on hub..."
-        kubectl --context=ramen-hub apply -f "${SCRIPT_DIR}/../../config/crd/bases/"
+        
+        # Apply CRDs individually to avoid issues with invalid files
+        for crd_file in "${SCRIPT_DIR}/../../config/crd/bases/"*.yaml; do
+            if [[ -f "$crd_file" && "$(basename "$crd_file")" != "_.yaml" ]]; then
+                log_info "Applying CRD: $(basename "$crd_file")"
+                if ! kubectl --context=ramen-hub apply -f "$crd_file"; then
+                    log_warning "Failed to apply CRD: $(basename "$crd_file")"
+                fi
+            fi
+        done
         
         # Wait for CRDs to be established
         log_info "Waiting for CRDs to be established..."
@@ -101,35 +110,47 @@ main() {
     # 3. Update operator configurations with working endpoint
     log_info "🔧 Updating operator configurations with working endpoint..."
     
+    # Update hub operator ConfigMap using external YAML
+    log_info "Updating hub operator config..."
+    local hub_config_file="${SCRIPT_DIR}/../yaml/s3-config/hub-operator-config.yaml"
+    if [ -f "$hub_config_file" ]; then
+        sed "s|MINIO_ENDPOINT|${WORKING_ENDPOINT}|g" "$hub_config_file" | \
+        kubectl --context=ramen-hub apply -f -
+        log_success "Hub operator ConfigMap updated"
+    else
+        log_warning "Hub operator config file not found: $hub_config_file"
+    fi
+    
+    # Update DR cluster operator ConfigMaps using external YAML
+    local dr_config_file="${SCRIPT_DIR}/../yaml/s3-config/dr-cluster-operator-config.yaml"
     for cluster in ramen-dr1 ramen-dr2; do
         log_info "Updating operator config on $cluster..."
         
-        kubectl --context=$cluster patch configmap ramen-dr-cluster-operator-config -n ramen-system --patch "
-data:
-  ramen_manager_config.yaml: |
-    ramenControllerType: dr-cluster
-    maxConcurrentReconciles: 50
-    drClusterOperator:
-      deploymentAutomationEnabled: true
-      s3StoreProfiles:
-      - s3ProfileName: minio-s3
-        s3Bucket: ramen-metadata
-        s3Region: us-east-1
-        s3CompatibleEndpoint: ${WORKING_ENDPOINT}
-        s3SecretRef:
-          name: ramen-s3-secret
-          namespace: ramen-system
-    health:
-      healthProbeBindAddress: :8081
-    metrics:
-      bindAddress: 127.0.0.1:9289
-    webhook:
-      port: 9443
-    leaderElection:
-      leaderElect: false
-      resourceName: dr-cluster.ramendr.openshift.io
-" || log_warning "Failed to patch ConfigMap on $cluster"
+        if [ -f "$dr_config_file" ]; then
+            sed "s|MINIO_ENDPOINT|${WORKING_ENDPOINT}|g" "$dr_config_file" | \
+            kubectl --context=$cluster apply -f -
+            log_success "DR cluster operator ConfigMap updated on $cluster"
+        else
+            log_warning "DR cluster operator config file not found: $dr_config_file"
+        fi
     done
+    
+    # 3.5. Copy S3 secret to hub cluster (needed for DRCluster validation)
+    log_info "🔐 Copying S3 secret to hub cluster..."
+    if kubectl --context=ramen-dr1 get secret ramen-s3-secret -n ramen-system >/dev/null 2>&1; then
+        if ! kubectl --context=ramen-hub get secret ramen-s3-secret -n ramen-system >/dev/null 2>&1; then
+            log_info "Copying S3 secret from DR1 to hub..."
+            # Use kubectl to copy the secret cleanly
+            kubectl --context=ramen-dr1 get secret ramen-s3-secret -n ramen-system -o yaml | \
+            sed '/resourceVersion:/d' | sed '/uid:/d' | sed '/creationTimestamp:/d' | \
+            kubectl --context=ramen-hub apply -f -
+            log_success "S3 secret copied to hub"
+        else
+            log_info "S3 secret already exists on hub"
+        fi
+    else
+        log_warning "S3 secret not found on DR clusters"
+    fi
     
     # 4. Create DRClusterConfig resources on hub for both DR clusters
     log_info "🔧 Creating DRClusterConfig resources on hub..."
@@ -180,6 +201,13 @@ EOF
     # 5. Restart operators to pick up new configuration
     log_info "🔄 Restarting operators to pick up new configuration..."
     
+    # Restart hub operator first
+    log_info "Restarting hub operator..."
+    kubectl --context=ramen-hub delete pod -n ramen-system -l control-plane=controller-manager --grace-period=0 || true
+    sleep 5
+    wait_for_deployment "ramen-hub" "ramen-hub-operator" "ramen-system" 300
+    
+    # Restart DR cluster operators
     for cluster in ramen-dr1 ramen-dr2; do
         log_info "Restarting operator on $cluster..."
         kubectl --context=$cluster delete pod -n ramen-system -l control-plane=controller-manager --grace-period=0 || true

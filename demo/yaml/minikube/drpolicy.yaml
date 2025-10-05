@@ -1,0 +1,18 @@
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPolicy
+metadata:
+  name: minikube-dr-policy
+  namespace: ramen-system
+  labels:
+    ramendr.openshift.io/environment: minikube
+spec:
+  drClusters:
+  - ramen-dr1
+  - ramen-dr2
+  schedulingInterval: 5m
+  replicationClassSelector:
+    matchLabels:
+      ramendr.openshift.io/replicationID: ramen-volsync
+  volumeSnapshotClassSelector:
+    matchLabels:
+      velero.io/csi-volumesnapshot-class: "true"

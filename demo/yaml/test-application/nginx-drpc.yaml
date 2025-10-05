@@ -18,10 +18,10 @@ spec:
   drPolicyRef:
     name: ramen-dr-policy
 
-  # Reference to Placement (updated from PlacementRule)
+  # Reference to Placement (dedicated DRPC-managed placement)
   placementRef:
     kind: Placement  # Changed from PlacementRule
-    name: dr-primary-placement  # Matches dr-primary-placement.yaml in dr-policy/
+    name: nginx-drpc-placement  # Dedicated placement with disable annotation
     namespace: nginx-test
 
   # Which cluster should be primary (where app runs initially)
@@ -35,5 +35,5 @@ spec:
     matchLabels:
       app: nginx-test
 
-  # Action to take (can be 'Relocate' for failover or 'Failover' for permanent switch)
+  # Action to take - Deploy for initial deployment, Relocate for moving between clusters
   action: Relocate

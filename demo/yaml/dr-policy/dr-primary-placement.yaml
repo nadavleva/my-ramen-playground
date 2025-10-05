@@ -1,10 +1,9 @@
-apiVersion: cluster.open-cluster-management.io/v1beta2
+apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement
 metadata:
   name: dr-primary-placement
   namespace: nginx-test
 spec:
-  schedulerName: ramen
   clusterSets:
     - default
   numberOfClusters: 1
