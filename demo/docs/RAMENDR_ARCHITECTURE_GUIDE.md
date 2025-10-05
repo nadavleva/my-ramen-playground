@@ -517,6 +517,327 @@ func (r *VolumeReplicationGroup) ValidateUpdate(old runtime.Object) error {
     return r.ValidateCreate()
 }
 ```
+## 💻 **Developer & Codebase Overview**
+
+### **🎯 Core Purpose & Architecture**
+
+RamenDR is a **Kubernetes-native disaster recovery solution** that provides automated failover and failback capabilities for stateful applications across multiple clusters. The system orchestrates disaster recovery through:
+
+- **📦 Volume Replication**: Synchronizing persistent volumes between clusters
+- **🗂️ Application Metadata Backup**: Using Velero for Kubernetes objects  
+- **🔄 Cross-Cluster Orchestration**: Managing failover/failback workflows
+- **📋 Policy-Driven DR**: Declarative disaster recovery policies
+
+### **🏗️ Main Components & Functionality**
+
+#### **1. Core Controllers (`internal/controller/`)**
+
+##### **📦 VolumeReplicationGroup (VRG) Controller**
+- **Primary Component**: Orchestrates all DR operations at the cluster level
+- **Files**: `volumereplicationgroup_controller.go`, `vrg_*.go`
+- **Key Functions**:
+  ```go
+  // Manages volume replication (CSI, VolSync)
+  func (r *VolumeReplicationGroupReconciler) reconcileVolumeReplication()
+  
+  // Handles application metadata backup/restore via Velero  
+  func (r *VolumeReplicationGroupReconciler) reconcileKubeObjects()
+  
+  // Coordinates recipe execution (pre/post hooks)
+  func (r *VolumeReplicationGroupReconciler) reconcileRecipes()
+  
+  // Maintains replication state (primary/secondary)
+  func (r *VolumeReplicationGroupReconciler) updateReplicationState()
+  ```
+
+##### **🎯 DRPlacementControl (DRPC) Controller**
+- **Hub-Level Orchestrator**: Manages cross-cluster DR workflows
+- **File**: `drplacementcontrol_controller.go`
+- **Key Functions**:
+  ```go
+  // Initiates failover/failback operations
+  func (r *DRPlacementControlReconciler) handleFailover()
+  
+  // Manages placement across clusters via OCM
+  func (r *DRPlacementControlReconciler) reconcilePlacement()
+  
+  // Coordinates with Open Cluster Management (OCM)
+  func (r *DRPlacementControlReconciler) updateManifestWork()
+  
+  // Enforces DR policies
+  func (r *DRPlacementControlReconciler) validateDRPolicy()
+  ```
+
+##### **📋 DRPolicy Controller**
+- **Policy Management**: Defines DR configurations and cluster relationships
+- **File**: `drpolicy_controller.go`
+- **Key Functions**:
+  ```go
+  // Validates cluster pairs for DR
+  func (r *DRPolicyReconciler) validateClusterPairs()
+  
+  // Configures replication parameters
+  func (r *DRPolicyReconciler) setupReplicationClasses()
+  
+  // Manages S3 storage for metadata backups
+  func (r *DRPolicyReconciler) configureS3Storage()
+  ```
+
+##### **🌐 DRCluster Controller**
+- **Cluster Registration**: Manages cluster enrollment in DR
+- **File**: `drcluster_controller.go`  
+- **Key Functions**:
+  ```go
+  // Validates cluster readiness for DR
+  func (r *DRClusterReconciler) validateClusterHealth()
+  
+  // Configures storage classes and snapshot classes
+  func (r *DRClusterReconciler) setupStorageClasses()
+  
+  // Manages cluster-specific DR configurations
+  func (r *DRClusterReconciler) configureClusterProfile()
+  ```
+
+#### **2. Storage Integration Modules**
+
+##### **🔄 Volume Replication (`vrg_volrep.go`)**
+```go
+// CSI-based replication using VolumeReplication CRDs
+func (v *VRGInstance) reconcileVolumeReplication() {
+    // Creates VolumeReplication resources for each PVC
+    // Manages primary/secondary relationships
+    // Handles replication health monitoring
+}
+```
+
+##### **🔁 VolSync Integration (`vrg_volsync.go`)**
+```go
+// Asynchronous replication using VolSync
+func (v *VRGInstance) reconcileVolSync() {
+    // ReplicationSource (primary cluster)
+    // ReplicationDestination (secondary cluster)  
+    // Supports Rsync and Rclone methods
+}
+```
+
+##### **📊 Volume Group Replication (`vrg_volgrouprep.go`)**
+```go
+// Consistent group replication for multiple volumes
+func (v *VRGInstance) reconcileVolumeGroupReplication() {
+    // Ensures crash-consistent snapshots across volume groups
+    // Manages group-level replication policies
+}
+```
+
+#### **3. Application Metadata Management**
+
+##### **🗂️ Velero Integration (`kubeobjects/velero/`)**
+```go
+// Backup/Restore Kubernetes objects
+func (m RequestsManager) ProtectRequestCreate() // Creates Velero Backup
+func (m RequestsManager) RecoverRequestCreate() // Creates Velero Restore
+
+// Excludes volume-related resources that VRG handles
+func getBackupSpecFromObjectsSpec(objectsSpec kubeobjects.Spec) velero.BackupSpec {
+    ExcludedResources: []string{
+        "PersistentVolumeClaims", 
+        "PersistentVolumes",
+        "volumereplications.replication.storage.openshift.io",
+        // ... other VRG-managed resources
+    }
+}
+```
+
+##### **🔧 Kube Objects Protection (`vrg_kubeobjects.go`)**
+```go
+// Orchestrates application metadata DR
+func (v *VRGInstance) kubeObjectsProtect() // Backup phase
+func (v *VRGInstance) kubeObjectsRecover() // Restore phase  
+// Integrates with S3 storage for cross-cluster access
+```
+
+#### **4. Recipe System (`vrg_recipe.go`)**
+```go
+// Pre/Post operation hooks for application consistency
+func (v *VRGInstance) executeRecipes() {
+    // Pre-backup hooks (e.g., database flush, quiesce)
+    // Post-restore hooks (e.g., application restart, validation)
+    // Supports various hook types (exec, HTTP, etc.)
+}
+```
+
+### **🔄 Key Workflows**
+
+#### **1. Application Protection (Primary Cluster)**
+```mermaid
+graph TD
+    VRGCreate["📦 VRG Created<br/>replicationState: primary"] 
+    --> DiscoverPVCs["🔍 Discover PVCs<br/>via pvcSelector"]
+    --> CreateVolRep["🔄 Create VolumeReplication<br/>for each PVC"]
+    --> BackupMetadata["🗂️ Backup App Metadata<br/>via Velero to S3"]
+    --> ExecuteHooks["⚡ Execute Pre-backup<br/>Recipes/Hooks"]
+    --> MonitorHealth["📊 Monitor Replication<br/>Health & Status"]
+```
+
+#### **2. Disaster Recovery (Failover)**
+```mermaid
+graph TD
+    TriggerFailover["🚨 DRPC Initiates<br/>Failover to Secondary"] 
+    --> PromoteVolumes["⬆️ Promote Volumes<br/>Secondary → Primary"]
+    --> RestoreMetadata["📥 Velero Restore<br/>from S3 Backup"]
+    --> RecreateObjects["🔧 Recreate Application<br/>Objects & Resources"]
+    --> ExecutePostHooks["⚡ Execute Post-restore<br/>Recipes/Hooks"]
+    --> AppActive["✅ Application Active<br/>on Secondary Cluster"]
+```
+
+#### **3. Failback (Return to Primary)**
+```mermaid
+graph TD
+    InitiateFailback["🔄 Initiate Failback<br/>Process"]
+    --> ReverseReplication["↩️ Setup Reverse<br/>Replication"]
+    --> SyncData["📊 Sync Data Back<br/>to Original Primary"]
+    --> FailoverBack["⬅️ Failover Back<br/>to Original Cluster"] 
+    --> ResumeNormal["✅ Resume Normal<br/>Operations"]
+```
+
+### **🔌 Integration Points**
+
+#### **🌐 Open Cluster Management (OCM)**
+```go
+// Multi-cluster orchestration via OCM APIs
+type ManifestWork struct {
+    // Deploy VRG resources across clusters
+}
+
+type ManagedClusterView struct {
+    // Read VRG status from remote clusters  
+}
+
+type Placement struct {
+    // Schedule workloads across clusters based on policies
+}
+```
+
+#### **📦 Storage Backends**
+```go
+// Multiple replication methods supported
+type VolumeReplication struct {
+    // CSI VolumeReplication (vendor-specific)
+}
+
+type ReplicationSource struct {
+    // VolSync rsync/rclone-based replication
+}
+
+type VolumeGroupSnapshot struct {
+    // Volume Group Snapshots (consistent groups)
+}
+```
+
+#### **☁️ S3 Object Storage**
+```go
+// Metadata backup storage configuration
+type S3StoreProfile struct {
+    S3ProfileName         string
+    S3Bucket             string  
+    S3Region             string
+    S3CompatibleEndpoint string // MinIO, AWS S3, etc.
+    // Cross-cluster access for metadata sharing
+    // Encrypted backup storage
+}
+```
+
+### **⚙️ Configuration & Deployment**
+
+#### **📋 RamenConfig (`api/v1alpha1/ramenconfig_types.go`)**
+```yaml
+# Global RamenDR configuration
+ramenControllerType: dr-hub | dr-cluster | all-in-one
+maxConcurrentReconciles: 1
+kubeObjectProtection:
+  enabled: true
+  veleroNamespaceName: velero
+drClusterOperator:
+  deploymentAutomationEnabled: true
+  s3SecretDistributionEnabled: true
+  s3StoreProfiles:
+  - s3ProfileName: minio-s3
+    s3Bucket: ramen-metadata
+    s3CompatibleEndpoint: "http://minio.minio-system.svc.cluster.local:9000"
+```
+
+#### **🏗️ Deployment Modes**
+
+| **Mode** | **Components** | **Use Case** | **Location** |
+|----------|---------------|--------------|---------------|
+| **🎯 Hub Cluster** | DRPC, DRPolicy, DRCluster controllers | Multi-cluster orchestration | OCM Hub Cluster |
+| **🤖 DR Cluster** | VRG controller, local replication | Local DR operations | Each managed cluster |
+| **🔧 All-in-One** | All controllers in single cluster | Testing, development | Single cluster demo |
+
+### **🧪 Testing & Demo Infrastructure**
+
+#### **📁 Demo Environment (`demo/`)**
+```bash
+# Complete demo setup workflow
+./demo/scripts/minikube_setup.sh           # Multi-cluster creation
+./demo/scripts/storage/set_ceph_storage.sh  # Rook Ceph setup (production-like)
+./demo/scripts/minikube_quick-install.sh    # RamenDR installation
+./demo/scripts/setup-test-app-drpc.sh       # Application protection setup
+```
+
+#### **✅ Test Suite (`internal/controller/*_test.go`)**
+```go
+// Comprehensive testing strategy
+var _ = Describe("VolumeReplicationGroup Controller", func() {
+    // Unit tests for individual controllers
+    // Integration tests with fake Kubernetes API (envtest)
+    // E2E tests with real clusters (e2e/)
+    
+    BeforeEach(func() {
+        defer GinkgoRecover() // Proper panic handling in test goroutines
+    })
+})
+```
+
+#### **🔧 Test Stability Improvements**
+```go
+// Recent fix for silent test failures
+go func() {
+    defer GinkgoRecover() // Captures controller startup panics
+    err = k8sManager.Start(ctx)
+    Expect(err).ToNot(HaveOccurred())
+}()
+```
+
+### **📚 Code Navigation Guide**
+
+#### **🎯 Key Entry Points**
+- **Main Reconcilers**: [`internal/controller/`](../internal/controller/)
+- **API Types**: [`api/v1alpha1/`](../api/v1alpha1/)  
+- **Configuration**: [`config/`](../config/)
+- **Webhooks**: [`internal/controller/webhook/`](../internal/controller/webhook/)
+- **E2E Tests**: [`e2e/`](../e2e/)
+- **Demo Scripts**: [`demo/scripts/`](../demo/scripts/)
+
+#### **🔍 Understanding the Flow**
+1. **Start with CRDs**: [`api/v1alpha1/`](../api/v1alpha1/) - Understand the data structures
+2. **Main Controllers**: [`volumereplicationgroup_controller.go`](../internal/controller/volumereplicationgroup_controller.go) - Core VRG logic
+3. **Storage Integration**: [`vrg_volrep.go`](../internal/controller/vrg_volrep.go), [`vrg_volsync.go`](../internal/controller/vrg_volsync.go) - Replication backends
+4. **Metadata Handling**: [`vrg_kubeobjects.go`](../internal/controller/vrg_kubeobjects.go) - Velero integration
+5. **Demo Examples**: [`demo/yaml/`](../demo/yaml/) - Working configurations
+
+### **🚀 Summary**
+
+RamenDR provides a **complete disaster recovery solution** through:
+
+1. **📦 Automated Volume Replication** (data protection across clusters)
+2. **🗂️ Application Metadata Management** (configuration protection via Velero)
+3. **🔄 Cross-Cluster Orchestration** (intelligent failover/failback workflows)
+4. **📋 Policy-Driven Configuration** (declarative DR management)
+5. **🔌 Cloud-Native Integration** (OCM, Velero, CSI, S3 ecosystems)
+
+The codebase follows **cloud-native best practices** with clear separation of concerns, comprehensive testing, and production-ready features for enterprise disaster recovery scenarios.
+
 
 ## 🔌 **Storage Integration**
 
