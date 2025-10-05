@@ -541,7 +541,6 @@ func (v *VRGInstance) uploadKubeObjectsToS3() error {
 ## 🎯 **Webhook Implementation**
 
 ### **Admission Webhooks**
-**File**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
 
 RamenDR uses admission webhooks for validation and mutation:
 
@@ -868,7 +867,6 @@ go func() {
 - **Main Reconcilers**: [`internal/controller/`](../../internal/controller/)
 - **API Types**: [`api/v1alpha1/`](../../api/v1alpha1/)  
 - **Configuration**: [`config/`](../../config/)
-- **Webhooks**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
 - **E2E Tests**: [`e2e/`](../../e2e/)
 - **Demo Scripts**: [`demo/scripts/`](../scripts/)
 
@@ -933,7 +931,6 @@ deletionPolicy: Delete
 - **Main Reconcilers**: [`internal/controller/`](../../internal/controller/)
 - **API Types**: [`api/v1alpha1/`](../../api/v1alpha1/)
 - **Configuration**: [`config/`](../../config/)
-- **Webhooks**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
 - **E2E Tests**: [`test/`](../../test/)
 
 ### **External Dependencies**
