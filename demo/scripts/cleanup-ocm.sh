@@ -11,21 +11,25 @@ DR_CONTEXTS=("ramen-dr1" "ramen-dr2")
 
 log_step "🧹 Cleaning up OCM setup for fresh re-run..."
 
-# 1. Remove ManagedClusters from hub
+# 1. Remove ManagedClusters from hub using utils for finalizer handling
 log_info "Removing ManagedClusters from hub..."
-kubectl --context=$HUB_CONTEXT delete managedcluster --all --ignore-not-found=true --timeout=60s || log_warning "Failed to delete some ManagedClusters"
-
-# 2. Remove klusterlets from DR clusters
-log_info "Removing klusterlets from DR clusters..."
 for ctx in "${DR_CONTEXTS[@]}"; do
-    log_info "Cleaning up $ctx..."
-    kubectl --context=$ctx delete klusterlet --all --ignore-not-found=true --timeout=60s || log_warning "Failed to delete klusterlet on $ctx"
+    log_info "Removing ManagedCluster: $ctx"
+    safe_delete_with_finalizers "$HUB_CONTEXT" "managedcluster" "$ctx" ""
 done
 
-# 3. Clean up agent namespaces (they should auto-delete, but let's be sure)
+# 2. Remove klusterlets from DR clusters using utils for finalizer handling
+log_info "Removing klusterlets from DR clusters..."
+for ctx in "${DR_CONTEXTS[@]}"; do
+    log_info "Cleaning up klusterlet on $ctx..."
+    safe_delete_with_finalizers "$ctx" "klusterlet" "klusterlet" ""
+done
+
+# 3. Clean up agent namespaces using utils
 log_info "Cleaning up agent namespaces..."
 for ctx in "${DR_CONTEXTS[@]}"; do
-    kubectl --context=$ctx delete namespace open-cluster-management-agent --ignore-not-found=true --timeout=60s || log_warning "Failed to delete agent namespace on $ctx"
+    log_info "Removing agent namespace on $ctx..."
+    safe_delete "$ctx" "namespace" "open-cluster-management-agent" ""
 done
 
 # 4. Remove CSRs related to our clusters
@@ -41,10 +45,10 @@ for ctx in "${DR_CONTEXTS[@]}"; do
     fi
 done
 
-# 5. Clean up ManagedClusterSetBindings if they exist
+# 5. Clean up ManagedClusterSetBindings using utils
 log_info "Cleaning up ManagedClusterSetBindings..."
-kubectl --context=$HUB_CONTEXT delete managedclustersetbinding --all -n nginx-test --ignore-not-found=true || log_warning "Failed to delete ManagedClusterSetBindings in nginx-test"
-kubectl --context=$HUB_CONTEXT delete managedclustersetbinding --all -n ramen-system --ignore-not-found=true || log_warning "Failed to delete ManagedClusterSetBindings in ramen-system"
+safe_delete "$HUB_CONTEXT" "managedclustersetbinding" "--all" "nginx-test"
+safe_delete "$HUB_CONTEXT" "managedclustersetbinding" "--all" "ramen-system"
 
 # 6. Wait for cleanup to complete
 log_info "Waiting for cleanup to complete..."

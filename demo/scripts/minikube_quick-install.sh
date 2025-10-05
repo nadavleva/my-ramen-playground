@@ -34,6 +34,8 @@ check_kubeconfig_for_minikube() {
 check_kubeconfig_for_minikube
 check_kubectl
 
+# MCV functionality moved to setup-ocm-resources.sh for better separation of concerns
+
 # # Install storage dependencies (same as original)
 # install_storage_dependencies() {
 #     log_info "Installing storage replication dependencies..."
@@ -383,6 +385,8 @@ install_all_clusters() {
     log_success "🎉 Multi-cluster installation completed!"
     log_info "Hub operator: ramen-hub"
     log_info "DR operators: ${dr_contexts[*]}"
+    
+    # Note: MCV functionality is now handled in setup-ocm-resources.sh (step 3)
 }
 
 # Verify installation
@@ -422,7 +426,7 @@ create_sample_policy() {
     # Apply DRPolicy using external YAML
     if [ -f "$minikube_yaml_dir/drpolicy.yaml" ]; then
         log_info "Applying DRPolicy from external YAML..."
-        apply_yaml_with_timeout_warning "kubectl --context=ramen-hub apply -f $minikube_yaml_dir/drpolicy.yaml" "DRPolicy creation"
+        apply_yaml_with_timeout_warning "ramen-hub" "$minikube_yaml_dir/drpolicy.yaml" "DRPolicy creation"
     else
         log_error "DRPolicy YAML file not found: $minikube_yaml_dir/drpolicy.yaml"
         return 1
@@ -431,7 +435,7 @@ create_sample_policy() {
     # Apply DRClusters using external YAML
     if [ -f "$minikube_yaml_dir/drclusters.yaml" ]; then
         log_info "Applying DRClusters from external YAML..."
-        apply_yaml_with_timeout_warning "kubectl --context=ramen-hub apply -f $minikube_yaml_dir/drclusters.yaml" "DRClusters creation"
+        apply_yaml_with_timeout_warning "ramen-hub" "$minikube_yaml_dir/drclusters.yaml" "DRClusters creation"
     else
         log_error "DRClusters YAML file not found: $minikube_yaml_dir/drclusters.yaml"
         return 1

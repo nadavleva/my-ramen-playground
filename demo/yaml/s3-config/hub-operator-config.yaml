@@ -1,0 +1,46 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Hub Operator ConfigMap with S3 configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-hub-operator-config
+  namespace: ramen-system
+  labels:
+    app.kubernetes.io/name: ramen
+    app.kubernetes.io/component: config
+    app: ramen-hub
+data:
+  ramen_manager_config.yaml: |
+    apiVersion: ramendr.openshift.io/v1alpha1
+    kind: RamenConfig
+    health:
+      healthProbeBindAddress: :8081
+    metrics:
+      bindAddress: 127.0.0.1:9289
+    webhook:
+      port: 9443
+    leaderElection:
+      leaderElect: true
+      resourceName: hub.ramendr.openshift.io
+    ramenControllerType: dr-hub
+    maxConcurrentReconciles: 50
+    s3StoreProfiles:
+    - s3ProfileName: minio-s3
+      s3Bucket: ramen-metadata
+      s3Region: us-east-1
+      s3CompatibleEndpoint: MINIO_ENDPOINT
+      s3SecretRef:
+        name: ramen-s3-secret
+        namespace: ramen-system
+    volSync:
+      destinationCopyMethod: Direct
+    volumeUnprotectionEnabled: true
+    ramenOpsNamespace: ramen-ops
+    multiNamespace:
+      FeatureEnabled: true
+      volsyncSupported: true
+    kubeObjectProtection:
+      veleroNamespaceName: velero

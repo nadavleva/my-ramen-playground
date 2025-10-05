@@ -73,9 +73,8 @@ main() {
     ensure_resource "ramen-hub" "drcluster" "ramen-dr1" "" 60
     ensure_resource "ramen-hub" "drcluster" "ramen-dr2" "" 60
     # Update verification to use nginx-test namespace
-    ensure_resource "ramen-hub" "placementrule" "dr-primary-placement" "nginx-test" 60
-    ensure_resource "ramen-hub" "placementrule" "dr-secondary-placement" "nginx-test" 60
-    ensure_resource "ramen-hub" "placementrule" "dr-any-placement" "nginx-test" 60
+    ensure_resource "ramen-hub" "placement" "dr-primary-placement" "nginx-test" 60
+    ensure_resource "ramen-hub" "placement" "dr-secondary-placement" "nginx-test" 60
     
     log_success "DR Policy and Configuration setup completed!"
     
@@ -91,8 +90,8 @@ main() {
     echo "ManagedClusters:"
     kubectl --context=ramen-hub get managedcluster -o wide 2>/dev/null || echo "  No ManagedClusters found"
     echo ""
-    echo "PlacementRules:"
-    kubectl --context=ramen-hub get placementrule -n nginx-test -o wide 2>/dev/null || echo "  No PlacementRules found"
+    echo "Placements:"
+    kubectl --context=ramen-hub get placement -n nginx-test -o wide 2>/dev/null || echo "  No Placements found"
     echo ""
     echo "PlacementDecisions:"
     kubectl --context=ramen-hub get placementdecision -n nginx-test -o wide 2>/dev/null || echo "  No PlacementDecisions found"

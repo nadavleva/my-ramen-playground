@@ -112,75 +112,59 @@ main() {
     
     # 5. Update operator ConfigMaps with S3 configuration
     log_info "🔧 Step 5: Updating operator configurations..."
+    
+    # Update hub operator ConfigMap using external YAML
+    log_info "Updating hub operator config..."
+    local hub_config_file="${SCRIPT_DIR}/../yaml/s3-config/hub-operator-config.yaml"
+    if [ -f "$hub_config_file" ]; then
+        sed "s|MINIO_ENDPOINT|http://${HUB_IP}:30900|g" "$hub_config_file" | \
+        kubectl --context=ramen-hub apply -f -
+        log_success "Hub operator ConfigMap updated"
+    else
+        log_warning "Hub operator config file not found: $hub_config_file"
+    fi
+    
+    # Update DR cluster operator ConfigMaps using external YAML
+    local dr_config_file="${SCRIPT_DIR}/../yaml/s3-config/dr-cluster-operator-config.yaml"
     for cluster in ramen-dr1 ramen-dr2; do
         log_info "Updating operator config on $cluster..."
         
-        # Check if the ConfigMap exists first
-        if kubectl --context=$cluster get configmap ramen-dr-cluster-operator-config -n ramen-system >/dev/null 2>&1; then
-            # Update the operator ConfigMap with S3 settings
-            kubectl --context=$cluster patch configmap ramen-dr-cluster-operator-config -n ramen-system --patch "
-data:
-  ramen_manager_config.yaml: |
-    ramenControllerType: dr-cluster
-    maxConcurrentReconciles: 50
-    drClusterOperator:
-      deploymentAutomationEnabled: true
-      s3StoreProfiles:
-      - s3ProfileName: minio-s3
-        s3Bucket: ramen-metadata
-        s3Region: us-east-1
-        s3CompatibleEndpoint: http://${HUB_IP}:30900
-        s3SecretRef:
-          name: ramen-s3-secret
-          namespace: ramen-system
-    health:
-      healthProbeBindAddress: :8081
-    metrics:
-      bindAddress: 127.0.0.1:9289
-    webhook:
-      port: 9443
-    leaderElection:
-      leaderElect: false
-      resourceName: dr-cluster.ramendr.openshift.io
-" || log_warning "ConfigMap patch may have failed on $cluster"
+        if [ -f "$dr_config_file" ]; then
+            sed "s|MINIO_ENDPOINT|http://${HUB_IP}:30900|g" "$dr_config_file" | \
+            kubectl --context=$cluster apply -f -
+            log_success "DR cluster operator ConfigMap updated on $cluster"
         else
-            # Create the ConfigMap if it doesn't exist
-            log_info "Creating operator ConfigMap on $cluster..."
-            cat <<EOF | kubectl --context=$cluster apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ramen-dr-cluster-operator-config
-  namespace: ramen-system
-data:
-  ramen_manager_config.yaml: |
-    ramenControllerType: dr-cluster
-    maxConcurrentReconciles: 50
-    drClusterOperator:
-      deploymentAutomationEnabled: true
-      s3StoreProfiles:
-      - s3ProfileName: minio-s3
-        s3Bucket: ramen-metadata
-        s3Region: us-east-1
-        s3CompatibleEndpoint: http://${HUB_IP}:30900
-        s3SecretRef:
-          name: ramen-s3-secret
-          namespace: ramen-system
-    health:
-      healthProbeBindAddress: :8081
-    metrics:
-      bindAddress: 127.0.0.1:9289
-    webhook:
-      port: 9443
-    leaderElection:
-      leaderElect: false
-      resourceName: dr-cluster.ramendr.openshift.io
-EOF
+            log_warning "DR cluster operator config file not found: $dr_config_file"
         fi
     done
     
-    # 6. Restart DR operators to pick up new configuration
-    log_info "🔄 Step 6: Restarting DR operators..."
+    # 6. Copy S3 secret to hub cluster (needed for DRCluster validation)
+    log_info "🔐 Step 6: Copying S3 secret to hub cluster..."
+    if kubectl --context=ramen-dr1 get secret ramen-s3-secret -n ramen-system >/dev/null 2>&1; then
+        if ! kubectl --context=ramen-hub get secret ramen-s3-secret -n ramen-system >/dev/null 2>&1; then
+            log_info "Copying S3 secret from DR1 to hub..."
+            # Use kubectl to copy the secret cleanly
+            kubectl --context=ramen-dr1 get secret ramen-s3-secret -n ramen-system -o yaml | \
+            sed '/resourceVersion:/d' | sed '/uid:/d' | sed '/creationTimestamp:/d' | \
+            kubectl --context=ramen-hub apply -f -
+            log_success "S3 secret copied to hub"
+        else
+            log_info "S3 secret already exists on hub"
+        fi
+    else
+        log_warning "S3 secret not found on DR clusters"
+    fi
+    
+    # 7. Restart operators to pick up new configuration
+    log_info "🔄 Step 7: Restarting operators..."
+    
+    # Restart hub operator
+    log_info "Restarting hub operator..."
+    kubectl --context=ramen-hub delete pod -n ramen-system -l control-plane=controller-manager --grace-period=0 || true
+    sleep 5
+    wait_for_deployment "ramen-hub" "ramen-hub-operator" "ramen-system" 300
+    
+    # Restart DR cluster operators
     for cluster in ramen-dr1 ramen-dr2; do
         log_info "Restarting operator on $cluster..."
         kubectl --context=$cluster delete pod -n ramen-system -l control-plane=controller-manager --grace-period=0 || true
@@ -188,8 +172,8 @@ EOF
         wait_for_deployment "$cluster" "ramen-dr-cluster-operator" "ramen-system" 300
     done
     
-    # 7. Verify setup
-    log_info "🔍 Step 7: Verifying S3 setup..."
+    # 8. Verify setup
+    log_info "🔍 Step 8: Verifying S3 setup..."
     
     # Check MinIO is running
     if kubectl --context=ramen-hub get pod -n minio-system -l app=minio | grep -q Running; then
@@ -244,13 +228,19 @@ EOF
     echo "  or open http://${HUB_IP}:30901 in browser"
     echo ""
     echo "To test S3 connectivity:"
-    echo "  kubectl --context=ramen-dr1 run test-s3 --image=minio/mc --rm -i --restart=Never -- /bin/sh -c \"mc alias set test http://${HUB_IP}:30900 minioadmin minioadmin\""
+    echo "  kubectl --context=ramen-dr1 run test-s3 --image=minio/mc --rm -i --restart=Never -- mc alias set test http://${HUB_IP}:30900 minioadmin minioadmin"
     echo ""
     echo "To check operator configuration:"
     echo "  kubectl --context=ramen-dr1 get configmap ramen-dr-cluster-operator-config -n ramen-system -o yaml"
     echo ""
-    echo "To verify bucket access:"
-    echo "  kubectl --context=ramen-dr1 run verify-bucket --image=minio/mc --rm -i --restart=Never -- /bin/sh -c \"mc alias set minio http://${HUB_IP}:30900 minioadmin minioadmin && mc ls minio/ramen-metadata/\""
+    echo "To verify bucket access (run these commands in sequence):"
+    echo "  # First, set up the alias:"
+    echo "  kubectl --context=ramen-dr1 run setup-alias --image=minio/mc --rm -i --restart=Never -- mc alias set minio http://${HUB_IP}:30900 minioadmin minioadmin"
+    echo "  # Then, list the bucket contents:"
+    echo "  kubectl --context=ramen-dr1 run list-bucket --image=minio/mc --rm -i --restart=Never -- mc ls minio/ramen-metadata/"
+    echo ""
+    echo "Alternative: Use a busybox container with curl to test connectivity:"
+    echo "  kubectl --context=ramen-dr1 run test-curl --image=busybox --rm -i --restart=Never -- /bin/sh -c 'wget -O- http://${HUB_IP}:30900/minio/health/live || echo \"Connection test completed\"'"
 }
 
 # Run main function

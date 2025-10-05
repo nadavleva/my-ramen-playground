@@ -1,0 +1,29 @@
+---
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Dedicated Placement for DRPC control
+# This placement is pre-configured with the disable annotation
+# so RamenDR can take control immediately
+
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: nginx-drpc-placement
+  namespace: nginx-test
+  labels:
+    app: nginx-test
+    ramendr.openshift.io/managed: "true"
+  annotations:
+    # Disable OCM scheduling so RamenDR can take control
+    cluster.open-cluster-management.io/experimental-scheduling-disable: "true"
+spec:
+  # RamenDR expects numberOfClusters to be 1
+  numberOfClusters: 1
+  clusterSets:
+    - default
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels:
+            name: ramen-dr1  # Initial placement on primary cluster

@@ -147,6 +147,19 @@ if [ ! -d "$LOCAL_HUB_CRD_DIR" ]; then
     fi
 fi
 
+# Install OCM Policy Framework CRDs (required for VolSync and DRPC)
+log_info "🔧 Installing OCM Policy Framework CRDs..."
+log_info "Installing Policy CRD..."
+kubectl --context=$HUB_CONTEXT apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml || log_warning "Failed to install Policy CRD"
+
+log_info "Installing PlacementBinding CRD..."
+kubectl --context=$HUB_CONTEXT apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_placementbindings.yaml || log_warning "Failed to install PlacementBinding CRD"
+
+log_info "Installing PolicyAutomation CRD..."
+kubectl --context=$HUB_CONTEXT apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policyautomations.yaml || log_warning "Failed to install PolicyAutomation CRD"
+
+log_success "OCM Policy Framework CRDs installed"
+
 # Apply hub CRDs using kustomize if kustomization.yaml exists
 if [ -f "$LOCAL_HUB_CRD_DIR/kustomization.yaml" ]; then
     log_info "Applying hub CRDs using kustomize..."
@@ -216,13 +229,37 @@ for ctx in "${DR_CONTEXTS[@]}"; do
     log_info "Using hub server URL: $HUB_SERVER"
     log_info "Using hub token: ${HUB_TOKEN:0:20}..." # Show only first 20 chars for security
 
-    # Attempt to join the cluster with error handling
+    # Attempt to join the cluster with retry logic for "unexpected watch event received" error
     log_long_operation "Joining cluster $ctx to hub" "1-2 minutes"
-    if clusteradm join --hub-token "$HUB_TOKEN" --hub-apiserver "$HUB_SERVER" --wait --cluster-name "$ctx"; then
-        log_success "✅ Joined cluster $ctx to hub"
-        JOINED_CLUSTERS+=("$ctx")
-    else
-        log_error "❌ Failed to join cluster $ctx to hub"
+    
+    JOIN_SUCCESS=false
+    for attempt in 1 2 3; do
+        log_info "Join attempt $attempt/3 for cluster $ctx..."
+        
+        if clusteradm join --hub-token "$HUB_TOKEN" --hub-apiserver "$HUB_SERVER" --wait --cluster-name "$ctx"; then
+            log_success "✅ Joined cluster $ctx to hub (attempt $attempt)"
+            JOINED_CLUSTERS+=("$ctx")
+            JOIN_SUCCESS=true
+            break
+        else
+            local exit_code=$?
+            log_warning "❌ Join attempt $attempt failed for cluster $ctx (exit code: $exit_code)"
+            
+            if [ $attempt -lt 3 ]; then
+                log_info "Waiting 10 seconds before retry..."
+                sleep 10
+                
+                # Clean up any partial klusterlet resources before retry
+                log_info "Cleaning up any partial klusterlet resources..."
+                kubectl delete klusterlet klusterlet --ignore-not-found=true 2>/dev/null || true
+                kubectl delete namespace open-cluster-management-agent --ignore-not-found=true 2>/dev/null || true
+                sleep 5
+            fi
+        fi
+    done
+    
+    if [ "$JOIN_SUCCESS" = false ]; then
+        log_error "❌ Failed to join cluster $ctx to hub after 3 attempts"
         log_info "Manual recovery commands:"
         log_info "  kubectl config use-context $ctx"
         log_info "  clusteradm join --hub-token '$HUB_TOKEN' --hub-apiserver '$HUB_SERVER' --wait --cluster-name '$ctx'"

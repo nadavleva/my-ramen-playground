@@ -18,16 +18,16 @@ data:
     # RamenDR Manager Configuration
     ramenControllerType: dr-cluster
     maxConcurrentReconciles: 1
+    s3StoreProfiles:
+    - s3ProfileName: minio-s3
+      s3Bucket: ramen-metadata
+      s3Region: us-east-1
+      s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
+      s3SecretRef:
+        name: ramen-s3-secret
+        namespace: ramen-system
     drClusterOperator:
       deploymentAutomationEnabled: true
-      s3StoreProfiles:
-      - s3ProfileName: minio-s3
-        s3Bucket: ramen-metadata
-        s3Region: us-east-1
-        s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
-        s3SecretRef:
-          name: ramen-s3-secret
-          namespace: ramen-system
 
 ---
 # Hub operator config (if needed)
@@ -44,13 +44,13 @@ data:
     # RamenDR Hub Manager Configuration
     ramenControllerType: dr-hub
     maxConcurrentReconciles: 1
+    s3StoreProfiles:
+    - s3ProfileName: minio-s3
+      s3Bucket: ramen-metadata
+      s3Region: us-east-1
+      s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
+      s3SecretRef:
+        name: ramen-s3-secret
+        namespace: ramen-system
     drClusterOperator:
       deploymentAutomationEnabled: true
-      s3StoreProfiles:
-      - s3ProfileName: minio-s3
-        s3Bucket: ramen-metadata
-        s3Region: us-east-1
-        s3CompatibleEndpoint: http://minio.minio-system.svc.cluster.local:9000
-        s3SecretRef:
-          name: ramen-s3-secret
-          namespace: ramen-system

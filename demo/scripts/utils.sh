@@ -601,7 +601,7 @@ remove_finalizers() {
     fi
     
     # Check for finalizers (use grep to avoid yq dependency)
-    if echo "$yaml_output" | grep -q "finalizers:" && echo "$yaml_output" | grep -A5 "finalizers:" | grep -q "- "; then
+    if echo "$yaml_output" | grep -q "finalizers:" && echo "$yaml_output" | grep -A5 "finalizers:" | grep -q "^[[:space:]]*-[[:space:]]"; then
         log_warning "Resource has finalizers. Attempting to remove them..."
         
         # Try to remove finalizers with retries
@@ -747,4 +747,40 @@ safe_delete() {
     
     # Use the improved force_delete_resource function
     force_delete_resource "$context" "$resource_type" "$resource_name" "$namespace" "$timeout"
+}
+
+# Enhanced safe delete with finalizer removal specifically for OCM resources
+safe_delete_with_finalizers() {
+    local context="$1"
+    local resource_type="$2"
+    local resource_name="$3"
+    local namespace="${4:-}"
+    
+    if [[ -z "$context" || -z "$resource_type" || -z "$resource_name" ]]; then
+        log_error "safe_delete_with_finalizers: Missing required parameters"
+        return 1
+    fi
+    
+    local ns_flag=""
+    if [[ -n "$namespace" ]]; then
+        ns_flag="-n $namespace"
+    fi
+    
+    # Check if resource exists
+    if ! kubectl --context="$context" get "$resource_type" "$resource_name" $ns_flag >/dev/null 2>&1; then
+        log_info "Resource '$resource_type/$resource_name' does not exist."
+        return 0
+    fi
+    
+    log_info "Removing finalizers from '$resource_type/$resource_name' to prevent hanging..."
+    # Remove finalizers first for OCM resources that commonly get stuck
+    case "$resource_type" in
+        "placement"|"placementrule"|"drpc"|"managedcluster")
+            kubectl --context="$context" patch "$resource_type" "$resource_name" $ns_flag --type='merge' -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+            ;;
+    esac
+    
+    # Now attempt normal deletion
+    safe_delete "$context" "$resource_type" "$resource_name" "$namespace"
+    return $?
 }
