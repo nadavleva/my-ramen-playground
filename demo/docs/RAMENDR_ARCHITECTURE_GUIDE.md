@@ -63,9 +63,9 @@ graph TB
   - Coordinates workload placement and failover
   - Monitors cluster health and triggers DR actions
 
-**Code Location**: [`internal/controller/`](../internal/controller/)
-- Hub Controller: [`drplacementcontrol_controller.go`](../internal/controller/drplacementcontrol_controller.go)
-- DRPolicy Controller: [`drpolicy_controller.go`](../internal/controller/drpolicy_controller.go)
+**Code Location**: [`internal/controller/`](../../internal/controller/)
+- Hub Controller: [`drplacementcontrol_controller.go`](../../internal/controller/drplacementcontrol_controller.go)
+- DRPolicy Controller: [`drpolicy_controller.go`](../../internal/controller/drpolicy_controller.go)
 
 ### **DR Cluster Operator** (`ramen-dr-cluster-operator`)  
 - **Location**: Each managed cluster (DR sites)
@@ -75,9 +75,9 @@ graph TB
   - Handles PVC protection and metadata backup
   - Coordinates with storage replication (VolSync, CSI)
 
-**Code Location**: [`internal/controller/`](../internal/controller/)
-- VRG Controller: [`volumereplicationgroup_controller.go`](../internal/controller/volumereplicationgroup_controller.go)
-- DRCluster Controller: [`drcluster_controller.go`](../internal/controller/drcluster_controller.go)
+**Code Location**: [`internal/controller/`](../../internal/controller/)
+- VRG Controller: [`volumereplicationgroup_controller.go`](../../internal/controller/volumereplicationgroup_controller.go)
+- DRCluster Controller: [`drcluster_controller.go`](../../internal/controller/drcluster_controller.go)
 
 ## 📋 **Custom Resource Definitions (CRDs)**
 
@@ -88,7 +88,7 @@ RamenDR defines several custom resources that extend Kubernetes:
 
 **Purpose**: The core resource that manages volume replication for applications. It selects PVCs, handles replication state (primary/secondary), and backs up Kubernetes metadata to S3.
 
-**File**: [`api/v1alpha1/volumereplicationgroup_types.go`](../api/v1alpha1/volumereplicationgroup_types.go)
+**File**: [`api/v1alpha1/volumereplicationgroup_types.go`](../../api/v1alpha1/volumereplicationgroup_types.go)
 
 **Demo YAML Example**:
 ```yaml
@@ -154,7 +154,7 @@ spec:
 - No explicit VRG already exists for the application
 - This works in both OpenShift ACM and lightweight Kubernetes environments
 
-**File**: [`api/v1alpha1/drpolicy_types.go`](../api/v1alpha1/drpolicy_types.go)
+**File**: [`api/v1alpha1/drpolicy_types.go`](../../api/v1alpha1/drpolicy_types.go)
 
 **Demo YAML Example**:
 ```yaml
@@ -196,7 +196,7 @@ spec:
 1. **Automatically** by DRPolicy (when matching applications are detected)
 2. **Manually** by creating VRG resources directly
 
-**File**: [`api/v1alpha1/drplacementcontrol_types.go`](../api/v1alpha1/drplacementcontrol_types.go)
+**File**: [`api/v1alpha1/drplacementcontrol_types.go`](../../api/v1alpha1/drplacementcontrol_types.go)
 
 **Demo YAML Example**:
 ```yaml
@@ -234,7 +234,7 @@ spec:
 
 **Purpose**: Registers clusters in the disaster recovery configuration. Links clusters to S3 profiles for metadata storage and defines regional information.
 
-**File**: [`api/v1alpha1/drcluster_types.go`](../api/v1alpha1/drcluster_types.go)
+**File**: [`api/v1alpha1/drcluster_types.go`](../../api/v1alpha1/drcluster_types.go)
 
 **Demo YAML Example**:
 ```yaml
@@ -278,7 +278,7 @@ spec:
 
 **Purpose**: Configures S3 storage profiles for metadata backup, controller settings, and operator behavior. Deployed as a ConfigMap containing YAML configuration.
 
-**File**: [`api/v1alpha1/ramenconfig_types.go`](../api/v1alpha1/ramenconfig_types.go)
+**File**: [`api/v1alpha1/ramenconfig_types.go`](../../api/v1alpha1/ramenconfig_types.go)
 
 **Demo YAML Example**:
 ```yaml
@@ -341,7 +341,7 @@ data:
 
 **Purpose**: Provides cluster-specific configuration for DR operations, including storage classes and cluster capabilities.
 
-**File**: [`config/crd/bases/ramendr.openshift.io_drclusterconfigs.yaml`](../config/crd/bases/ramendr.openshift.io_drclusterconfigs.yaml)
+**File**: [`config/crd/bases/ramendr.openshift.io_drclusterconfigs.yaml`](../../config/crd/bases/ramendr.openshift.io_drclusterconfigs.yaml)
 
 #### **7. 📊 Additional Operational CRDs**
 
@@ -352,7 +352,7 @@ RamenDR also defines several operational CRDs for advanced features:
 - **ProtectedVolumeReplicationGroupList**: Tracks protected volume groups
 - **MaintenanceMode**: Controls maintenance operations
 
-**Location**: [`config/crd/bases/`](../config/crd/bases/)
+**Location**: [`config/crd/bases/`](../../config/crd/bases/)
 
 ### **🎯 Demo Workflow - CRD Usage Summary**
 
@@ -396,7 +396,7 @@ graph TD
 3. **Manual Method**: Direct creation of VRG resources (always works)
 
 ### **VRG Controller Workflow**
-**File**: [`internal/controller/volumereplicationgroup_controller.go`](../internal/controller/volumereplicationgroup_controller.go)
+**File**: [`internal/controller/volumereplicationgroup_controller.go`](../../internal/controller/volumereplicationgroup_controller.go)
 
 ```go
 // Reconcile handles VRG reconciliation
@@ -444,7 +444,7 @@ func (r *VolumeReplicationGroupReconciler) reconcilePrimary(ctx context.Context,
 
 ### **☁️ S3 Object Storage Implementation**
 
-**File**: [`internal/controller/s3utils.go`](../internal/controller/s3utils.go)
+**File**: [`internal/controller/s3utils.go`](../../internal/controller/s3utils.go)
 
 ```go
 // ObjectStorer interface for S3 metadata backup operations
@@ -541,7 +541,7 @@ func (v *VRGInstance) uploadKubeObjectsToS3() error {
 ## 🎯 **Webhook Implementation**
 
 ### **Admission Webhooks**
-**File**: [`internal/controller/webhook/`](../internal/controller/webhook/)
+**File**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
 
 RamenDR uses admission webhooks for validation and mutation:
 
@@ -865,19 +865,19 @@ go func() {
 ### **📚 Code Navigation Guide**
 
 #### **🎯 Key Entry Points**
-- **Main Reconcilers**: [`internal/controller/`](../internal/controller/)
-- **API Types**: [`api/v1alpha1/`](../api/v1alpha1/)  
-- **Configuration**: [`config/`](../config/)
-- **Webhooks**: [`internal/controller/webhook/`](../internal/controller/webhook/)
-- **E2E Tests**: [`e2e/`](../e2e/)
-- **Demo Scripts**: [`demo/scripts/`](../demo/scripts/)
+- **Main Reconcilers**: [`internal/controller/`](../../internal/controller/)
+- **API Types**: [`api/v1alpha1/`](../../api/v1alpha1/)  
+- **Configuration**: [`config/`](../../config/)
+- **Webhooks**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
+- **E2E Tests**: [`e2e/`](../../e2e/)
+- **Demo Scripts**: [`demo/scripts/`](../scripts/)
 
 #### **🔍 Understanding the Flow**
-1. **Start with CRDs**: [`api/v1alpha1/`](../api/v1alpha1/) - Understand the data structures
-2. **Main Controllers**: [`volumereplicationgroup_controller.go`](../internal/controller/volumereplicationgroup_controller.go) - Core VRG logic
-3. **Storage Integration**: [`vrg_volrep.go`](../internal/controller/vrg_volrep.go), [`vrg_volsync.go`](../internal/controller/vrg_volsync.go) - Replication backends
-4. **Metadata Handling**: [`vrg_kubeobjects.go`](../internal/controller/vrg_kubeobjects.go) - Velero integration
-5. **Demo Examples**: [`demo/yaml/`](../demo/yaml/) - Working configurations
+1. **Start with CRDs**: [`api/v1alpha1/`](../../api/v1alpha1/) - Understand the data structures
+2. **Main Controllers**: [`volumereplicationgroup_controller.go`](../../internal/controller/volumereplicationgroup_controller.go) - Core VRG logic
+3. **Storage Integration**: [`vrg_volrep.go`](../../internal/controller/vrg_volrep.go), [`vrg_volsync.go`](../../internal/controller/vrg_volsync.go) - Replication backends
+4. **Metadata Handling**: [`vrg_kubeobjects.go`](../../internal/controller/vrg_kubeobjects.go) - Velero integration
+5. **Demo Examples**: [`demo/yaml/`](../yaml/) - Working configurations
 
 ### **🚀 Summary**
 
@@ -930,11 +930,11 @@ deletionPolicy: Delete
 ## 📚 **Additional Resources**
 
 ### **Key Files to Explore**
-- **Main Reconcilers**: [`internal/controller/`](../internal/controller/)
-- **API Types**: [`api/v1alpha1/`](../api/v1alpha1/)
-- **Configuration**: [`config/`](../config/)
-- **Webhooks**: [`internal/controller/webhook/`](../internal/controller/webhook/)
-- **E2E Tests**: [`test/`](../test/)
+- **Main Reconcilers**: [`internal/controller/`](../../internal/controller/)
+- **API Types**: [`api/v1alpha1/`](../../api/v1alpha1/)
+- **Configuration**: [`config/`](../../config/)
+- **Webhooks**: [`internal/controller/webhook/`](../../internal/controller/webhook/)
+- **E2E Tests**: [`test/`](../../test/)
 
 ### **External Dependencies**
 - **Open Cluster Management**: [OCM GitHub](https://github.com/open-cluster-management-io)
@@ -943,7 +943,7 @@ deletionPolicy: Delete
 - **S3 API**: [AWS S3 Documentation](https://docs.aws.amazon.com/s3/)
 
 ### **Development Setup**
-See the main project [CONTRIBUTING.md](../CONTRIBUTING.md) for development environment setup and contribution guidelines.
+See the main project [CONTRIBUTING.md](../../CONTRIBUTING.md) for development environment setup and contribution guidelines.
 
 ## 🔴 **Red Hat OpenShift Integration**
 
