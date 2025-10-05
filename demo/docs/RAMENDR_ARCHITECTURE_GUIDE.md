@@ -442,46 +442,99 @@ func (r *VolumeReplicationGroupReconciler) reconcilePrimary(ctx context.Context,
 }
 ```
 
-### **S3 Backup Implementation**
-**File**: [`internal/controller/kubeobjects.go`](../internal/controller/kubeobjects.go)
+### **☁️ S3 Object Storage Implementation**
+
+**File**: [`internal/controller/s3utils.go`](../internal/controller/s3utils.go)
 
 ```go
-// S3ObjectStore interface for metadata backup
-type S3ObjectStore interface {
-    Put(objectName string, data []byte) error
-    Get(objectName string) ([]byte, error)
-    Delete(objectName string) error
-    List(prefix string) ([]string, error)
+// ObjectStorer interface for S3 metadata backup operations
+type ObjectStorer interface {
+    // Upload Kubernetes objects as JSON (automatically gzipped)
+    UploadObject(key string, object interface{}) error
+    
+    // Download and decode Kubernetes objects from S3
+    DownloadObject(key string, objectPointer interface{}) error
+    
+    // List object keys with optional prefix filtering
+    ListKeys(keyPrefix string) (keys []string, err error)
+    
+    // Delete single object
+    DeleteObject(key string) error
+    
+    // Batch delete multiple objects
+    DeleteObjects(key ...string) error
+    
+    // Delete all objects with given key prefix
+    DeleteObjectsWithKeyPrefix(keyPrefix string) error
 }
 
-// backupKubeObjects saves Kubernetes manifests to S3
-func (r *VolumeReplicationGroupReconciler) backupKubeObjects(ctx context.Context, vrg *ramendrv1alpha1.VolumeReplicationGroup) error {
-    // 1. Collect Kubernetes objects matching kubeObjectSelector
-    objects, err := r.collectKubeObjects(ctx, vrg)
-    if err != nil {
-        return err
-    }
+// ObjectStoreGetter provides S3 connections
+type ObjectStoreGetter interface {
+    ObjectStore(ctx context.Context, r client.Reader,
+        s3Profile string, callerTag string, log logr.Logger,
+    ) (ObjectStorer, ramen.S3StoreProfile, error)
+}
+```
 
-    // 2. Serialize objects to YAML
-    data, err := r.serializeObjects(objects)
-    if err != nil {
-        return err
-    }
+#### **Key Implementation Features**
 
-    // 3. Upload to S3 using configured profiles
-    for _, profile := range vrg.Spec.S3Profiles {
-        s3Store, err := r.getS3Store(profile)
+1. **🔧 Automatic Encoding**: Objects are automatically JSON-encoded and gzipped
+2. **🔍 Type-Safe Helpers**: Specialized functions for PVs, PVCs, VRGs
+3. **📦 Batch Operations**: Efficient batch delete operations
+4. **⏱️ Timeout Management**: Configurable S3 timeouts (default 12 seconds)
+5. **🔑 AWS Credential Support**: Automatic credential management from secrets
+
+#### **Typed Upload Functions**
+
+```go
+// Specialized upload functions with automatic key generation
+func UploadPV(s ObjectStorer, pvKeyPrefix, pvKeySuffix string, 
+    pv corev1.PersistentVolume) error
+
+func UploadPVC(s ObjectStorer, pvcKeyPrefix, pvcKeySuffix string, 
+    pvc corev1.PersistentVolumeClaim) error
+
+func UploadVGRC(s ObjectStorer, vgrcKeyPrefix, vgrcKeySuffix string, 
+    vgrc volrep.VolumeGroupReplicationContent) error
+
+// Key format: "<prefix><Type>/<suffix>"
+// Example: "nginx-test/nginx-vrg/v1.PersistentVolumeClaim/nginx-pvc"
+```
+
+#### **S3 Configuration**
+
+```go
+// S3 connection configuration
+type S3StoreProfile struct {
+    S3ProfileName         string
+    S3Bucket             string  
+    S3Region             string
+    S3CompatibleEndpoint string // MinIO, AWS S3, etc.
+    S3SecretRef          corev1.SecretReference
+}
+```
+
+#### **Usage Example in VRG Controller**
+
+```go
+// From vrg_kubeobjects.go
+func (v *VRGInstance) uploadKubeObjectsToS3() error {
+    for _, s3Profile := range v.instance.Spec.S3Profiles {
+        objectStore, _, err := S3ObjectStoreGetter().ObjectStore(
+            v.ctx, v.reconciler.APIReader, s3Profile, "VRG", v.log)
         if err != nil {
             return err
         }
         
-        objectName := fmt.Sprintf("%s/%s/kubeobjects.yaml", vrg.Namespace, vrg.Name)
-        if err := s3Store.Put(objectName, data); err != nil {
-            return err
+        // Upload PVCs with typed helper
+        for _, pvc := range pvcs {
+            keyPrefix := s3PathNamePrefix(v.instance.Namespace, v.instance.Name)
+            err := UploadPVC(objectStore, keyPrefix, pvc.Name, pvc)
+            if err != nil {
+                return err
+            }
         }
     }
-
-    return nil
 }
 ```
 
