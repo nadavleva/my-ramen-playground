@@ -374,7 +374,82 @@ minikube delete --profile=ramen-dr2
 
 ### **Common Issues:**
 
-**1. Insufficient Resources:**
+**1. OCM Setup Issues:**
+
+**Token Retrieval Failures:**
+```bash
+# Error: "Error from server (NotFound): secrets "agent-registration-bootstrap" not found"
+# Solution: The script now waits for secret creation and uses multiple methods
+
+# Check if clustermanager exists:
+kubectl --context=ramen-hub get clustermanager
+
+# Manual token retrieval methods (in order of reliability):
+# Method 1: Using clusteradm (most reliable - extracts from join command)
+clusteradm get token --context ramen-hub
+
+# Method 2: From secret (fallback)
+kubectl --context=ramen-hub -n open-cluster-management get secret agent-registration-bootstrap -o jsonpath='{.data.token}' | base64 -d
+
+# Check secret existence:
+kubectl --context=ramen-hub -n open-cluster-management get secrets
+```
+
+**Cluster Join Failures:**
+```bash
+# Error: "net/http: invalid header field value for "Authorization""
+# Error: "token is missing"
+# These are often caused by token formatting issues
+
+# The script now automatically:
+# 1. Extracts token from clusteradm join command output (most reliable)
+# 2. Removes "token=" prefix from clusteradm output
+# 3. Cleans whitespace and hidden characters
+# 4. Provides manual join commands on failure
+
+# Manual join with proper token extraction:
+TOKEN=$(clusteradm get token --context ramen-hub | grep -oP '(?<=--hub-token )[^\s]+' | head -1)
+kubectl config use-context ramen-dr1
+clusteradm join --hub-token "$TOKEN" --hub-apiserver 'https://HUB_IP:8443' --wait --cluster-name 'ramen-dr1'
+
+# Then accept on hub:
+kubectl config use-context ramen-hub
+clusteradm accept --clusters ramen-dr1
+
+# Alternative manual acceptance:
+kubectl --context=ramen-hub patch managedcluster ramen-dr1 --type='merge' -p '{"spec":{"hubAcceptsClient":true}}'
+```
+
+**Hub Server URL Issues:**
+```bash
+# Debug hub connectivity:
+kubectl config view --raw -o jsonpath="{.clusters[?(@.name==\"ramen-hub\")].cluster.server}"
+minikube -p ramen-hub ip
+
+# Test connectivity:
+curl -k https://$(minikube -p ramen-hub ip):8443/api/v1/namespaces/kube-public/configmaps/cluster-info
+
+# If internal hostname resolution fails, check /etc/hosts:
+grep control-plane.minikube.internal /etc/hosts
+```
+
+**Verification Commands:**
+```bash
+# Check overall OCM status:
+kubectl --context=ramen-hub get managedcluster -o wide
+
+# Check klusterlet status on DR clusters:
+kubectl --context=ramen-dr1 get klusterlet -o wide
+kubectl --context=ramen-dr2 get klusterlet -o wide
+
+# Check placement decisions:
+kubectl --context=ramen-hub get placementdecision --all-namespaces
+
+# Look for successful join/accept in logs:
+kubectl --context=ramen-hub -n open-cluster-management logs deployment/cluster-manager-registration-controller --tail=20
+```
+
+**2. Insufficient Resources:**
 ```bash
 # Error: Not enough memory/CPU
 # Solution: Reduce cluster resources or increase system resources
