@@ -30,35 +30,9 @@ defaults:
   run:
     shell: bash
 jobs:
-  # Check if non-documentation files have changed
-  changes:
-    runs-on: ubuntu-24.04
-    outputs:
-      code-changed: ${{ steps.changes.outputs.code-changed }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check for code changes
-        id: changes
-        run: |
-          echo "Changed files:"
-          git diff --name-only HEAD~1 HEAD || true
-          echo "Checking for non-docs changes..."
-          if git diff --name-only HEAD~1 HEAD | grep -qvE '^(docs/|.*\.md$|LICENSE$|CODEOWNERS$)'; then
-            echo "Found code changes"
-            echo "code-changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "Only documentation changes found"
-            echo "code-changed=false" >> $GITHUB_OUTPUT
-          fi
-
   lint:
     name: Linters
     runs-on: ubuntu-24.04
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -76,23 +50,8 @@ jobs:
           sudo gem install mdl
           sudo pip3 install yamllint
 
-      - name: Debug pre-commit environment
-        run: |
-          echo "=== Current directory ==="
-          pwd
-          ls -la hack/
-          echo "=== pre-commit.sh version ==="
-          head -10 hack/pre-commit.sh
-          echo "=== YAML files found ==="
-          find . -name "*.yaml" -o -name "*.yml" | grep -E "(demo|cluster-manager)" | head -10 || true
-          echo "=== yamllint version ==="
-          yamllint --version || echo "yamllint not found"
-
       - name: Run linters
-        run: |
-          echo "=== Linters temporarily disabled ==="
-          echo "Skipping ./hack/pre-commit.sh due to yamllint CI issues"
-          echo "Will re-enable after fixing yamllint configuration"
+        run: ./hack/pre-commit.sh
 
       - name: Check tidiness
         # Check that modules are tidy, and that generated files were not
@@ -109,8 +68,6 @@ jobs:
   golangci:
     name: Golangci Lint
     runs-on: ubuntu-24.04
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
     strategy:
       matrix:
         directory: [., api, e2e]
@@ -142,8 +99,6 @@ jobs:
   unit-test:
     name: Unit tests
     runs-on: ubuntu-24.04
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -159,8 +114,6 @@ jobs:
   e2e-test:
     name: E2E unit tests
     runs-on: ubuntu-24.04
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -177,8 +130,6 @@ jobs:
   build-image:
     name: Build image
     runs-on: ubuntu-24.04
-    needs: changes
-    if: needs.changes.outputs.code-changed == 'true'
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -203,8 +154,7 @@ jobs:
 
   deploy-check:
     name: Check artifacts and operator deployment
-    needs: [changes, build-image]
-    if: needs.changes.outputs.code-changed == 'true'
+    needs: [build-image]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -275,7 +225,7 @@ jobs:
 
   publish-image:
     name: Publish built image
-    needs: [changes, deploy-check, lint, golangci, unit-test, build-image]
+    needs: [deploy-check, lint, golangci, unit-test, build-image]
     if: >
       (vars.PUBLISH_IMAGES == 'true') &&
       (github.event_name == 'push') &&

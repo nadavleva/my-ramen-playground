@@ -45,9 +45,6 @@ test/.coverage.*
 test/addons/kubevirt/vm/id_rsa.pub
 test/drenv.log
 
-# kubectl-gather generated directories
-gather.*/
-
 # Python generated files
 *.egg-info/
 __pycache__/
@@ -67,5 +64,8 @@ ramendev/build
 
 # Ginkgo-related test files
 ginkgo.report
+
+# Demo and example files
 Temp/
-.ramen-demo-state
+align_with_upstream.sh
+changed_files.txt

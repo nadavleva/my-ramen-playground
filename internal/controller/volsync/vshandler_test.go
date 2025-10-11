@@ -1254,7 +1254,6 @@ var _ = Describe("VolSync_Handler", func() {
 					})
 
 					It("ensure PVC should delete the pvc with incorrect datasource and return err", func() {
-						Skip("Temporarily skipping due to race condition in PVC deletion/recreation timing")
 						// At this point we should have a PVC from previous but it should have a datasource
 						// that maches our old snapshot - the rd has been updated with a new latest image
 						// Expect ensurePVC from RD to remove the old one and return an error
