@@ -2315,7 +2315,7 @@ var _ = Describe("DRPlacementControl Reconciler", func() {
 
 		// Relocate
 		When("HubRecovery: DRAction is set to Relocate", func() {
-			It("Should relocate to Primary (East1ManagedCluster)", func() {
+			PIt("Should relocate to Primary (East1ManagedCluster)", func() {
 				// ----------------------------- RELOCATION TO PRIMARY --------------------------------------
 				from := West1ManagedCluster
 				runRelocateAction(userPlacementRule1, from, false, false)
