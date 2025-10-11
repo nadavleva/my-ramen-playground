@@ -201,10 +201,7 @@ environment.
 
    ```
    tag="$(curl -fsSL https://api.github.com/repos/nirs/kubectl-gather/releases/latest | jq -r .tag_name)"
-   arch="$(uname -m)"
-   [[ "$arch" == "x86_64" ]] && arch="amd64"
-   [[ "$arch" == "aarch64" ]] && arch="arm64"
-   curl -L -o kubectl-gather https://github.com/nirs/kubectl-gather/releases/download/$tag/kubectl-gather-$tag-darwin-$arch
+   curl -L -o kubectl-gather https://github.com/nirs/kubectl-gather/releases/download/$tag/kubectl-gather-$tag-darwin-arm64
    sudo install kubectl-gather /usr/local/bin
    rm kubectl-gather
    ```

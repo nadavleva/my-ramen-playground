@@ -8,13 +8,10 @@ extends: default
 ignore: |
   config/**
   hack/test/*
-  examples/**
-  demo/**
-  Temp/**
 rules:
   indentation:
     indent-sequences: consistent
-  line-length: disable
-  document-start: disable
+  line-length:
+    allow-non-breakable-inline-mappings: true
   truthy:
     check-keys: false

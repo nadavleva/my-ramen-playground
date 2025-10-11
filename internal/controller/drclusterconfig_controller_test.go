@@ -281,7 +281,7 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 	Describe("DRClusterConfig", Ordered, func() {
 		Context("Given DRClusterConfig resource", func() {
 			When("there is a StorageClass created with required labels", func() {
-				PIt("updates DRClusterConfig Status", func() {
+				It("updates DRClusterConfig Status", func() {
 					By("creating a StorageClass")
 
 					sc1 = baseSC.DeepCopy()
@@ -303,7 +303,7 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 				})
 			})
 			When("a StorageClass with required labels is deleted", func() {
-				PIt("removes the associated StorageClass from DRClusterConfig Status", func() {
+				It("removes the associated StorageClass from DRClusterConfig Status", func() {
 					By("deleting a StorageClass")
 
 					Expect(k8sClient.Delete(context.TODO(), sc1)).To(Succeed())
@@ -321,28 +321,8 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 					)
 				})
 			})
-			When("a StorageClass label is deleted", func() {
-				PIt("removes the associated StorageClass from DRClusterConfig Status", func() {
-					By("deleting a StorageClass label")
-
-					sc1.Labels = map[string]string{}
-					Expect(k8sClient.Update(context.TODO(), sc1)).To(Succeed())
-
-					classes.StorageClasses = []string{sc2.Name}
-
-					ensureClassStatus(apiReader, drCConfig, classes)
-					objectConditionExpectEventually(
-						apiReader,
-						drCConfig,
-						metav1.ConditionTrue,
-						Equal("Succeeded"),
-						Equal("Configuration processed and validated"),
-						ramen.DRClusterConfigConfigurationProcessed,
-					)
-				})
-			})
 			When("there are multiple StorageClass created with required labels", func() {
-				PIt("updates DRClusterConfig Status", func() {
+				It("updates DRClusterConfig Status", func() {
 					By("creating a StorageClass")
 
 					sc1 = baseSC.DeepCopy()
@@ -367,31 +347,29 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 					)
 				})
 			})
-			/*
-				When("a StorageClass label is deleted", func() {
-					It("removes the associated StorageClass from DRClusterConfig Status", func() {
-						By("deleting a StorageClass label")
+			When("a StorageClass label is deleted", func() {
+				It("removes the associated StorageClass from DRClusterConfig Status", func() {
+					By("deleting a StorageClass label")
 
-						sc1.Labels = map[string]string{}
-						Expect(k8sClient.Update(context.TODO(), sc1)).To(Succeed())
+					sc1.Labels = map[string]string{}
+					Expect(k8sClient.Update(context.TODO(), sc1)).To(Succeed())
 
-						classes.StorageClasses = []string{sc2.Name}
+					classes.StorageClasses = []string{sc2.Name}
 
-						ensureClassStatus(apiReader, drCConfig, classes)
-						objectConditionExpectEventually(
-							apiReader,
-							drCConfig,
-							metav1.ConditionTrue,
-							Equal("Succeeded"),
-							Equal("Configuration processed and validated"),
-							ramen.DRClusterConfigConfigurationProcessed,
-						)
-					})
+					ensureClassStatus(apiReader, drCConfig, classes)
+					objectConditionExpectEventually(
+						apiReader,
+						drCConfig,
+						metav1.ConditionTrue,
+						Equal("Succeeded"),
+						Equal("Configuration processed and validated"),
+						ramen.DRClusterConfigConfigurationProcessed,
+					)
 				})
-			*/
+			})
 		})
 		When("there is a SnapshotCLass created with required labels", func() {
-			PIt("updates DRClusterConfig Status", func() {
+			It("updates DRClusterConfig Status", func() {
 				By("creating a SnapshotClass")
 
 				vsc1 = baseVSC.DeepCopy()
@@ -413,21 +391,22 @@ var _ = Describe("DRClusterConfigControllerTests", Ordered, func() {
 			})
 		})
 		When("a SnapshotClass with required labels is deleted", func() {
-			PIt("removes the associated SnapshotClass from DRClusterConfig Status", func() {
+			It("removes the associated SnapshotClass from DRClusterConfig Status", func() {
 				By("deleting a SnapshotClass")
 
-				// Skipped: see https://github.com/ramendr/ramen/issues/XXX
-				// Expect(k8sClient.Delete(context.TODO(), vsc1)).To(Succeed())
-				// classes.VolumeGroupSnapshotClasses = []string{}
-				// ensureClassStatus(apiReader, drCConfig, classes)
-				// objectConditionExpectEventually(
-				//     apiReader,
-				//     drCConfig,
-				//     metav1.ConditionTrue,
-				//     Equal("Succeeded"),
-				//     Equal("Configuration processed and validated"),
-				//     ramen.DRClusterConfigConfigurationProcessed,
-				// )
+				Expect(k8sClient.Delete(context.TODO(), vsc1)).To(Succeed())
+
+				classes.VolumeGroupSnapshotClasses = []string{}
+
+				ensureClassStatus(apiReader, drCConfig, classes)
+				objectConditionExpectEventually(
+					apiReader,
+					drCConfig,
+					metav1.ConditionTrue,
+					Equal("Succeeded"),
+					Equal("Configuration processed and validated"),
+					ramen.DRClusterConfigConfigurationProcessed,
+				)
 			})
 		})
 		When("there are multiple SnapshotClass created with required labels", func() {
