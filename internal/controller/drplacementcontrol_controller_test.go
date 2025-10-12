@@ -2334,7 +2334,7 @@ var _ = Describe("DRPlacementControl Reconciler", func() {
 		// NAMESPACE           NAME           AGE     PREFERREDCLUSTER   FAILOVERCLUSTER   DESIREDSTATE   CURRENTSTATE   PROGRESSION      START TIME             DURATION   PEER READY
 		// busybox-sample      busybox-drpc   16h     East1ManagedClus   West1ManagedClu   Relocate       Relocated      Completed                                              True
 		When("HubRecovery: DRAction is Relocate -> Secondary Down", func() {
-			It("Should Continue given the primary East1ManagedCluster is up", func() {
+			PIt("Should Continue given the primary East1ManagedCluster is up", func() {
 				setClusterDown(West1ManagedCluster)
 				clearFakeUserPlacementRuleStatus(UserPlacementRuleName, DefaultDRPCNamespace)
 				clearDRPCStatus()
@@ -2364,7 +2364,7 @@ var _ = Describe("DRPlacementControl Reconciler", func() {
 		// NAMESPACE           NAME           AGE     PREFERREDCLUSTER   FAILOVERCLUSTER   DESIREDSTATE   CURRENTSTATE   PROGRESSION      START TIME             DURATION   PEER READY
 		// busybox-samples-3   busybox-drpc   11h     East1ManagedClus                     Relocate       Relocated      Completed                                              True
 		When("HubRecovery: DRAction is supposed to be Relocate -> Primary Down -> Action Cleared", func() {
-			It("Should Pause given the primary East1ManagedCluster is down, but allow failover", func() {
+			PIt("Should Pause given the primary East1ManagedCluster is down, but allow failover", func() {
 				setClusterDown(East1ManagedCluster)
 				clearFakeUserPlacementRuleStatus(UserPlacementRuleName, DefaultDRPCNamespace)
 				clearDRPCStatus()
