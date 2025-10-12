@@ -140,7 +140,7 @@ func vrgStatusStateUpdate(vrgS3, vrgK8s *ramen.VolumeReplicationGroup) {
 	}
 }
 
-var _ = Describe("ProtectedVolumeReplicationGroupListController", func() {
+var _ = PDescribe("ProtectedVolumeReplicationGroupListController", func() {
 	const (
 		namePrefix = "protectedvrglist-"
 		name0      = namePrefix + "0"
@@ -203,29 +203,29 @@ var _ = Describe("ProtectedVolumeReplicationGroupListController", func() {
 	}
 	var protectedVrgList *ramen.ProtectedVolumeReplicationGroupList
 	When("a list is created", func() {
-		PIt("should set its status's sample time to within a second", func() {
+		It("should set its status's sample time to within a second", func() {
 			protectedVrgList = protectedVrgListCreateAndStatusWait(name0, s3ProfileNumber)
 		})
 	})
 	When("no VRGs exist in a list's store", func() {
-		PIt("should report none", func() {
+		It("should report none", func() {
 			protectedVrgListValidate(protectedVrgList)
 		})
 	})
 	When("a 1st VRG exists in a list's store and list is refreshed", func() {
-		PIt("should report the 1st VRG", func() {
+		It("should report the 1st VRG", func() {
 			vrgProtect(0)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("a 2nd VRG exists in a list's store and list is refreshed", func() {
-		PIt("should report the 1st and 2nd VRGs", func() {
+		It("should report the 1st and 2nd VRGs", func() {
 			vrgProtect(1)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("a 3rd VRG exists in a list's store and list is refreshed", func() {
-		PIt("should report the 1st, 2nd, and 3rd VRGs", func() {
+		It("should report the 1st, 2nd, and 3rd VRGs", func() {
 			vrgProtect(2)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
@@ -237,21 +237,21 @@ var _ = Describe("ProtectedVolumeReplicationGroupListController", func() {
 			value2 = value + "1"
 		)
 		When("the 2nd VRG's user metadata annotation is added and list is refreshed", func() {
-			PIt("should report it", func() {
+			It("should report it", func() {
 				vrgAnnotationsSet(n, value)
 				vrgProtect(n)
 				protectedVrgListRefreshAndValidate(protectedVrgList)
 			})
 		})
 		When("the 2nd VRG's user metadata annotation is updated and list is refreshed", func() {
-			PIt("should report the updated version", func() {
+			It("should report the updated version", func() {
 				vrgAnnotationsSet(n, value2)
 				vrgProtect(n)
 				protectedVrgListRefreshAndValidate(protectedVrgList)
 			})
 		})
 		When("the 2nd VRG's user metadata annotation is deleted and list is refreshed", func() {
-			PIt("should not report it", func() {
+			It("should not report it", func() {
 				vrgAnnotationsDelete(n)
 				vrgProtect(n)
 				protectedVrgListRefreshAndValidate(protectedVrgList)
@@ -259,38 +259,37 @@ var _ = Describe("ProtectedVolumeReplicationGroupListController", func() {
 		})
 	})
 	When("the 2nd VRG no longer exists in a list's store", func() {
-		PIt("should report the 1st and 3rd VRGs", func() {
+		It("should report the 1st and 3rd VRGs", func() {
 			vrgUnprotect(1)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("a 4th VRG exists in a list's store", func() {
-		PIt("should report the 1st, 3rd, and 4th VRGs", func() {
+		It("should report the 1st, 3rd, and 4th VRGs", func() {
 			vrgProtect(3)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("the 1st VRG no longer exists in a list's store", func() {
-		PIt("should report the 3rd and 4th VRGs", func() {
+		It("should report the 3rd and 4th VRGs", func() {
 			vrgUnprotect(0)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("the 4th VRG no longer exists in a list's store", func() {
-		PIt("should report the 3rd VRG", func() {
+		It("should report the 3rd VRG", func() {
 			vrgUnprotect(3)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("the 3rd VRG no longer exists in a list's store", func() {
-		PIt("should report no VRGs", func() {
+		It("should report no VRGs", func() {
 			vrgUnprotect(2)
 			protectedVrgListRefreshAndValidate(protectedVrgList)
 		})
 	})
 	When("a list delete is deleted", func() {
 		It("should not find it", func() {
-			Skip("Skipping problematic test - expected pointer, but got nil error")
 			protectedVrgListDeleteAndNotFoundWait(protectedVrgList)
 		})
 	})

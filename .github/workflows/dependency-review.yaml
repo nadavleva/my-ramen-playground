@@ -11,7 +11,7 @@ permissions:
 jobs:
   dependency-review:
     runs-on: ubuntu-24.04
-    # Skip dependency review on forks or if Advanced Security is not available
+    # Skip dependency review on forks since it requires GitHub Advanced Security
     if: github.repository == 'RamenDR/ramen'
     steps:
       - name: 'Checkout Repository'

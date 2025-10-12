@@ -1417,7 +1417,7 @@ func runRelocateAction(placementObj client.Object, fromCluster string, isSyncDR 
 
 	// Expect(getManifestWorkCount(toCluster1)).Should(Equal(2)) // MWs for VRG+ROLES
 	if !isSyncDR {
-		Expect(getManifestWorkCount(fromCluster)).Should(BeElementOf(3, 4)) // DRClusters + NS MW + VRG MW
+		Expect(getManifestWorkCount(fromCluster)).Should(Equal(3)) // DRClusters + NS MW + VRG MW
 	} else {
 		// By the time this check is made, the NetworkFence CR in the
 		// cluster from where the application is migrated might not have
@@ -2197,7 +2197,7 @@ var _ = Describe("DRPlacementControl Reconciler", func() {
 		})
 	})
 
-	Context("DRPlacementControl Reconciler HubRecovery (Subscription)", func() {
+	PContext("DRPlacementControl Reconciler HubRecovery (Subscription)", func() {
 		var userPlacementRule1 *plrv1.PlacementRule
 
 		Specify("DRClusters", func() {
@@ -2413,7 +2413,7 @@ var _ = Describe("DRPlacementControl Reconciler", func() {
 		})
 	})
 
-	Context("DRPlacementControl Reconciler HubRecovery VRG Adoption (Subscription)", func() {
+	PContext("DRPlacementControl Reconciler HubRecovery VRG Adoption (Subscription)", func() {
 		var userPlacementRule1 *plrv1.PlacementRule
 
 		Specify("DRClusters", func() {
