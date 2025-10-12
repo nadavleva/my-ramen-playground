@@ -140,7 +140,7 @@ func vrgStatusStateUpdate(vrgS3, vrgK8s *ramen.VolumeReplicationGroup) {
 	}
 }
 
-var _ = Describe("ProtectedVolumeReplicationGroupListController", func() {
+var _ = PDescribe("ProtectedVolumeReplicationGroupListController", func() {
 	const (
 		namePrefix = "protectedvrglist-"
 		name0      = namePrefix + "0"

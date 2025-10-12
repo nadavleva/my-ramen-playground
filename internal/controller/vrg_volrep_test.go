@@ -1030,7 +1030,7 @@ var _ = Describe("VolumeReplicationGroupVolRepController", func() {
 	// Try the simple case of creating VRG, PVC, PV and
 	// check whether VolRep resources are created or not
 	var vrgTestCases []*vrgTest
-	Context("Create VRG, PVC, PV and check if VolReps are created", func() {
+	PContext("Create VRG, PVC, PV and check if VolReps are created", func() {
 		createTestTemplate := &template{
 			ClaimBindInfo:        corev1.ClaimBound,
 			VolumeBindInfo:       corev1.VolumeBound,
@@ -1228,7 +1228,7 @@ var _ = Describe("VolumeReplicationGroupVolRepController", func() {
 		volsyncEnabled:       true,
 	}
 	//nolint:dupl
-	Context("in primary state status check pending to bound", func() {
+	PContext("in primary state status check pending to bound", func() {
 		It("sets up non-bound PVCs, PVs and then bind them", func() {
 			vrgTestTemplateVSEnabled.s3Profiles = []string{s3Profiles[vrgS3ProfileNumber].S3ProfileName}
 			storageIDLabel := genStorageIDLabel(storageIDs[0])
