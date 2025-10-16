@@ -60,6 +60,8 @@ How you do this depends on your Minikube driver:
      ```
 
 > **Note:** If Minikube is running as a VM (KVM, VirtualBox), you may need to attach the disk as a virtual disk or use `--mount`.
+> > When running minikube clusters with the Docker driver, all host loop devices are visible inside each cluster node. This is normal for privileged containers.  
+> Ensure your Ceph OSD configuration uses the correct device (e.g., `/dev/loop1`) as mounted by the setup script.
 
 ---
 

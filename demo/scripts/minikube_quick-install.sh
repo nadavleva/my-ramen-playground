@@ -310,17 +310,36 @@ install_cluster_operator() {
         ensure_namespace "$context" "open-cluster-management" 60 || exit 1
     done
     
+    # Build operator image once (optimization: avoid building twice for both DR clusters)
+    log_info "Building operator image once for all DR clusters..."
+    local image_name="quay.io/ramendr/ramen-operator:latest"
+    log_info "Building operator image using Docker..."
+    if docker build -t "$image_name" .; then
+        log_success "Operator image built successfully"
+    else
+        log_error "Failed to build operator image"
+        exit 1
+    fi
+    
     # Install on each DR cluster
     for context in "${dr_contexts[@]}"; do
         log_info "Installing on $context..."
         switch_context "$context" || exit 1
         
-        # Build and load image
-        build_and_load_image "${context}" || log_warning "Image load failed for $context, continuing..."
+        # Load pre-built image into this minikube profile
+        log_info "Loading operator image into minikube profile ${context}..."
+        if minikube image load "$image_name" -p "${context}"; then
+            log_success "Image loaded into ${context}"
+        else
+            log_warning "Image load failed for $context, continuing..."
+        fi
         
-        # Install dependencies - don't fail on issues
+        # Install dependencies - don't fail on issues, and restore context after
         log_info "Installing storage dependencies on $context..."
+        local current_context="$context"
         install_storage_dependencies || log_warning "Storage dependencies had issues on $context, continuing..."
+        # Restore context in case storage dependencies changed it
+        switch_context "$current_context" || exit 1
         
         log_info "Deploying cluster operator to $context..."
         # Deploy
@@ -335,8 +354,8 @@ install_cluster_operator() {
             log_success "Cluster operator installed on $context"
         else
             log_warning "Cluster operator on $context may need more time"
-            kubectl get pods -n ramen-system || true
-            kubectl get deployment -n ramen-system || true
+            kubectl --context="$context" get pods -n ramen-system || true
+            kubectl --context="$context" get deployment -n ramen-system || true
         fi
     done
 }
@@ -390,8 +409,7 @@ verify_installation() {
     log_step "Verifying installation..."
     
     # Check hub operator
-    kubectl config use-context ramen-hub
-    if kubectl get deployment ramen-hub-operator -n ramen-system >/dev/null 2>&1; then
+    if kubectl --context=ramen-hub get deployment ramen-hub-operator -n ramen-system >/dev/null 2>&1; then
         log_success "✅ Hub operator deployed"
     else
         log_error "❌ Hub operator not found"
@@ -400,8 +418,7 @@ verify_installation() {
     # Check DR operators
     local dr_contexts=($(kubectl config get-contexts -o name | grep "^ramen-dr"))
     for context in "${dr_contexts[@]}"; do
-        kubectl config use-context "$context"
-        if kubectl get deployment ramen-dr-cluster-operator -n ramen-system >/dev/null 2>&1; then
+        if kubectl --context="$context" get deployment ramen-dr-cluster-operator -n ramen-system >/dev/null 2>&1; then
             log_success "✅ DR operator deployed on $context"
         else
             log_error "❌ DR operator not found on $context"

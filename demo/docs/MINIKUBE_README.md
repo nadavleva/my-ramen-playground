@@ -143,9 +143,6 @@ kubectl config delete-context ramen-dr2
 ./demo/scripts/set-ocm-using-clustadmin.sh
 ./demo/scripts/setup-ocm-resources.sh
 
-# 3. Install RamenDR operators
-echo "3" | ./demo/scripts/minikube_quick-install.sh
-
 # Verify OCM setup
 # Check that cluster-manager exists ONLY on hub
 kubectl --context=ramen-hub -n open-cluster-management get deployment
