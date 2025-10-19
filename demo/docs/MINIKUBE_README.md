@@ -208,6 +208,102 @@ kubectl --context=ramen-hub get drplacementcontrol -n test-app
 3. Check ManagedCluster status shows `Joined` and `Available` before proceeding
 4. Ensure S3 endpoint uses the correct Minikube IP address
 
+## 🚨 **CRITICAL KNOWN ISSUES**
+
+### **Issue: ManagedClusterView (MCV) Functionality Gap**
+
+**Problem:** Upstream OCM v1.0.0 lacks built-in ManagedClusterView controller functionality that DRPC requires to retrieve VRGs from managed clusters.
+
+**Symptoms:**
+```bash
+# DRPC fails to retrieve VRG status
+kubectl describe drpc -n nginx-demo
+# Shows: "❌ Expected: MCV Addon Missing"
+# Shows: "missing ManagedClusterView conditions"
+
+# MCV resources exist but don't process
+kubectl get managedclusterview -A
+# Status shows no conditions or failed processing
+```
+
+**Technical Impact:** 
+- **DRPC Workflow Blocked**: Cannot query VRG resources directly from managed clusters
+- **DR Operations Fail**: Failover/relocate operations cannot proceed without VRG resource access
+- **Fallback to S3 Only**: VRG retrieval limited to stale S3 store data
+- **No Live Monitoring**: Cannot detect real-time VRG resource changes or replication progress
+
+**Root Cause:** Unlike RHACM (Red Hat's OCM distribution), upstream OCM requires explicit addon installation for MCV functionality.
+
+**What RamenDR Queries Through MCV:**
+
+**Core DR Resources:**
+1. **VolumeReplicationGroup (VRG)** - Primary DR orchestration resource
+   - Purpose: Application data protection state and replication status
+   - Impact: Cannot determine application protection status or coordinate failovers
+
+2. **DRClusterConfig** - Cluster-specific DR configuration
+   - Purpose: Storage classes, replication IDs, and cluster capabilities
+   - Impact: Cannot validate cluster readiness or configure storage properly
+
+3. **MaintenanceMode** - Regional failover prerequisites  
+   - Purpose: Storage maintenance mode activation for regional DR
+   - Impact: Regional failover operations cannot be coordinated
+
+**Storage Infrastructure Resources:**
+4. **StorageClass** - Available storage classes on managed clusters
+   - Purpose: Validate storage compatibility and select appropriate classes
+   - Impact: Cannot ensure storage compatibility across DR sites
+
+5. **VolumeSnapshotClass** - Snapshot capabilities and configuration
+   - Purpose: Point-in-time backup and recovery operations
+   - Impact: Snapshot-based protection workflows fail
+
+6. **VolumeReplicationClass** - Replication method configuration
+   - Purpose: Configure sync/async replication between clusters
+   - Impact: Cannot set up or validate replication mechanisms
+
+7. **VolumeGroupReplicationClass** - Group replication for consistency
+   - Purpose: Consistent group replication for multi-volume applications
+   - Impact: Application consistency cannot be guaranteed during DR
+
+8. **VolumeGroupSnapshotClass** - Group snapshot capabilities
+   - Purpose: Consistent group snapshots for application recovery
+   - Impact: Consistent application recovery points unavailable
+
+**Network and Security Resources:**
+9. **NetworkFence** - Network-level fencing during failover
+   - Purpose: Prevent split-brain scenarios during cluster failures
+   - Impact: Split-brain protection mechanisms unavailable
+
+10. **NetworkFenceClass** - Network fencing capabilities and configuration
+    - Purpose: Configure network-level isolation methods
+    - Impact: Cannot implement proper network isolation during DR events
+
+**Technical Flow:**
+```
+DRPC Controller (Hub) 
+    ↓ Creates ManagedClusterView for VolumeReplicationGroup resource
+MCV Controller (Hub) 
+    ↓ Queries managed cluster via work-agent for specific VRG
+work-agent (Managed Cluster)
+    ↓ Retrieves VRG resource from managed cluster API
+    ↓ Returns complete VRG resource (spec + status)
+MCV Controller (Hub)
+    ↓ Updates MCV status with full VRG resource data
+DRPC Controller (Hub)
+    ↓ Reads MCV status to get complete VRG resource
+    ↓ Makes DR decisions based on VRG resource state
+```
+
+**Current Workaround:** 
+- MCV addon installation attempted but **upstream OCM lacks the actual controller implementation**
+- DRPC falls back to S3 store for VRG data (stale, not real-time)
+- **Recommendation**: Use RHACM for production environments
+
+**Solution Path:**
+- **Short-term**: Parallel RHACM scripts (in development)
+- **Long-term**: Contribute MCV controller to upstream OCM or use RHACM
+
 ## 🔧 **minikube Configuration**
 
 The setup creates 3 minikube profiles:
