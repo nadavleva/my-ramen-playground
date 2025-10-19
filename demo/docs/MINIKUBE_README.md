@@ -52,8 +52,8 @@ sudo install minikube-linux-amd64 /usr/local/bin/minikube
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install kubectl /usr/local/bin/kubectl
 
-# Install clusteradm (for OCM setup)
-curl -LO https://github.com/open-cluster-management-io/clusteradm/releases/download/v0.9.0/clusteradm_linux_amd64.tar.gz
+# Install clusteradm (for OCM setup) - Updated to v1.0.2
+curl -LO https://github.com/open-cluster-management-io/clusteradm/releases/download/v1.0.2/clusteradm_linux_amd64.tar.gz
 tar -xzf clusteradm_linux_amd64.tar.gz
 sudo install clusteradm /usr/local/bin/clusteradm
 
@@ -212,7 +212,14 @@ kubectl --context=ramen-hub get drplacementcontrol -n test-app
 
 ### **Issue: ManagedClusterView (MCV) Functionality Gap**
 
-**Problem:** Upstream OCM v1.0.0 lacks built-in ManagedClusterView controller functionality that DRPC requires to retrieve VRGs from managed clusters.
+**OCM Version Analysis:**
+- **clusteradm Tool**: v1.0.2 (installed binary)
+- **OCM Component Images**: `:latest` tag (quay.io/open-cluster-management/*)
+- **OCM APIs**: `main` branch references (latest upstream)
+- **Effective OCM Version**: **~v1.0.0** (latest upstream)
+- **Documentation Reference**: v0.9.0 (outdated in installation instructions)
+
+**Problem:** Upstream OCM v1.0.0+ lacks built-in ManagedClusterView controller functionality that DRPC requires to retrieve VRGs from managed clusters.
 
 **Symptoms:**
 ```bash
@@ -294,6 +301,49 @@ DRPC Controller (Hub)
     ↓ Reads MCV status to get complete VRG resource
     ↓ Makes DR decisions based on VRG resource state
 ```
+
+**Impact on OCM/ACM Cluster Management:**
+
+**Upstream OCM (Open Cluster Management):**
+- **CRDs Present**: ✅ ManagedClusterView CRD exists
+- **Controller Missing**: ❌ No MCV controller implementation
+- **Addon Framework**: ✅ Supports addon installation but lacks MCV addon
+- **Result**: MCV resources created but never processed (stuck in pending state)
+
+**RHACM (Red Hat Advanced Cluster Management):**
+- **Full MCV Support**: ✅ Built-in MCV controller and processor
+- **Addon Integration**: ✅ MCV functionality included by default
+- **Enterprise Features**: ✅ Additional search and governance integration
+- **Result**: Complete MCV functionality works out-of-the-box
+
+**Version Compatibility Matrix:**
+```
+OCM Version | clusteradm | MCV Support | RamenDR Compatible
+----------- | ---------- | ----------- | ------------------
+v0.9.0      | v0.9.0     | ❌ Missing  | ⚠️ Limited
+v1.0.0      | v1.0.2     | ❌ Missing  | ⚠️ Limited (Current)
+v1.0.0+     | v1.0.2+    | ❌ Missing  | ⚠️ Limited
+RHACM 2.8+  | Built-in   | ✅ Full     | ✅ Complete
+```
+
+**Functional Differences:**
+```
+Component                    | Upstream OCM v1.0.0 | RHACM
+---------------------------- | -------------------- | -----
+ManagedClusterView CRD       | ✅ Present           | ✅ Present
+MCV Controller               | ❌ Missing           | ✅ Built-in
+MCV Processor                | ❌ Missing           | ✅ Built-in
+work-agent Integration       | ✅ Present           | ✅ Enhanced
+Search Integration           | ❌ Basic             | ✅ Advanced
+Governance Integration       | ❌ Limited           | ✅ Full
+```
+
+**Technical Impact on Multi-Cluster Operations:**
+1. **Resource Visibility**: Hub cannot see managed cluster resources
+2. **Policy Enforcement**: Cannot validate resource compliance across clusters  
+3. **Application Management**: Cannot monitor application state on managed clusters
+4. **Troubleshooting**: No cross-cluster resource inspection capabilities
+5. **Automation**: Cannot build workflows that depend on managed cluster resource state
 
 **Current Workaround:** 
 - MCV addon installation attempted but **upstream OCM lacks the actual controller implementation**
