@@ -59,7 +59,13 @@ if minikube profile list 2>/dev/null | grep -q "rdr-monitoring"; then
     read -p "Do you want to delete and restart? (y/N): " restart
     if [[ $restart =~ ^[Yy]$ ]]; then
         log_info "Deleting existing environment..."
-        /home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python -m drenv delete envs/regional-dr-monitoring.yaml || true
+        # Use the correct virtual environment path
+        PYTHON_PATH="/home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python"
+        if [ ! -f "$PYTHON_PATH" ]; then
+            python3 -m drenv delete envs/regional-dr-monitoring.yaml || true
+        else
+            $PYTHON_PATH -m drenv delete envs/regional-dr-monitoring.yaml || true
+        fi
     else
         log_info "Skipping environment creation, proceeding to monitoring setup"
         setup_monitoring_only=true
@@ -76,7 +82,15 @@ if [ "$setup_monitoring_only" != "true" ]; then
     log_warning "This process takes 20-30 minutes. Please be patient..."
     echo ""
     
-    /home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python -m drenv start envs/regional-dr-monitoring.yaml
+    # Use the correct virtual environment path
+    PYTHON_PATH="/home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python"
+    if [ ! -f "$PYTHON_PATH" ]; then
+        # Fallback to system python if venv not found
+        log_warning "Virtual environment not found, using system python"
+        python3 -m drenv start envs/regional-dr-monitoring.yaml
+    else
+        $PYTHON_PATH -m drenv start envs/regional-dr-monitoring.yaml
+    fi
     
     if [ $? -eq 0 ]; then
         log_success "Regional DR environment started successfully!"

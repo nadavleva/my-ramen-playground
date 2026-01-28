@@ -23,16 +23,33 @@ check_contexts() {
         export KUBECONFIG=~/.kube/config
     fi
     
-    local required_contexts=("hub" "dr1" "dr2")
+    local required_contexts=("hub" "dr1")
+    local optional_contexts=("dr2")
+    
     for ctx in "${required_contexts[@]}"; do
         if ! kubectl config get-contexts -o name | grep -q "^$ctx$"; then
             echo -e "${RED}❌ Required context '$ctx' not found${NC}"
             echo "Available contexts:"
             kubectl config get-contexts -o name
+            echo ""
+            echo -e "${YELLOW}💡 To fix missing contexts, try:${NC}"
+            echo "  minikube start --profile=$ctx"
+            echo "  minikube update-context --profile=$ctx"
             exit 1
         fi
     done
-    echo -e "${GREEN}✅ All required contexts found: hub, dr1, dr2${NC}"
+    
+    # Check optional contexts
+    local found_contexts="hub, dr1"
+    for ctx in "${optional_contexts[@]}"; do
+        if kubectl config get-contexts -o name | grep -q "^$ctx$"; then
+            found_contexts="$found_contexts, $ctx"
+        else
+            echo -e "${YELLOW}⚠️  Optional context '$ctx' not found (cluster may be stopped)${NC}"
+        fi
+    done
+    
+    echo -e "${GREEN}✅ Available contexts: $found_contexts${NC}"
 }
 
 # Enhanced monitoring function
@@ -63,8 +80,12 @@ comprehensive_monitoring() {
     kubectl --context=hub get pods -n ramen-system 2>/dev/null || echo "  Hub cluster not accessible"
     echo "DR1 Operator:" 
     kubectl --context=dr1 get pods -n ramen-system 2>/dev/null || echo "  DR1 cluster not accessible"
-    echo "DR2 Operator:" 
-    kubectl --context=dr2 get pods -n ramen-system 2>/dev/null || echo "  DR2 cluster not accessible"
+    if kubectl config get-contexts -o name | grep -q "^dr2$"; then
+        echo "DR2 Operator:" 
+        kubectl --context=dr2 get pods -n ramen-system 2>/dev/null || echo "  DR2 cluster not accessible"
+    else
+        echo "DR2 Operator: (cluster not available)"
+    fi
     echo ""
 
     # ORCHESTRATION LAYER (Hub)
