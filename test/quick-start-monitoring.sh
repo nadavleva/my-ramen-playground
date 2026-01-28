@@ -53,44 +53,72 @@ if ! python3 -c "import drenv" 2>/dev/null; then
     exit 1
 fi
 
-# Check if environment is already running
+# Clean up any stalled minikube profiles
+log_info "Cleaning up any stalled minikube profiles..."
+stalled_profiles=()
 if minikube profile list 2>/dev/null | grep -q "rdr-monitoring"; then
-    log_warning "Regional DR monitoring environment appears to be already running"
+    log_info "Found existing regional DR monitoring profiles"
+    # Get list of profiles related to rdr-monitoring
+    while read -r profile; do
+        if [[ "$profile" =~ rdr-monitoring ]]; then
+            profile_name=$(echo "$profile" | awk '{print $2}')
+            profile_status=$(echo "$profile" | awk '{print $3}')
+            if [[ "$profile_status" != "Running" ]]; then
+                log_warning "Found stalled profile: $profile_name (status: $profile_status)"
+                stalled_profiles+=("$profile_name")
+            fi
+        fi
+    done < <(minikube profile list 2>/dev/null | grep "rdr-monitoring" || true)
+    
+    # Clean up stalled profiles
+    if [ ${#stalled_profiles[@]} -gt 0 ]; then
+        log_info "Cleaning up ${#stalled_profiles[@]} stalled profile(s)..."
+        for profile in "${stalled_profiles[@]}"; do
+            log_info "Deleting stalled profile: $profile"
+            minikube delete --profile="$profile" 2>/dev/null || log_warning "Failed to delete profile $profile"
+        done
+        log_success "Stalled profiles cleanup completed"
+    fi
+fi
+
+# Check if environment is already running
+if minikube profile list 2>/dev/null | grep -q "rdr-monitoring.*Running"; then
+    log_warning "Regional DR monitoring environment is currently running"
     read -p "Do you want to delete and restart? (y/N): " restart
     if [[ $restart =~ ^[Yy]$ ]]; then
         log_info "Deleting existing environment..."
-        # Use the correct virtual environment path
-        PYTHON_PATH="/home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python"
-        if [ ! -f "$PYTHON_PATH" ]; then
-            python3 -m drenv delete envs/regional-dr-monitoring.yaml || true
-        else
-            $PYTHON_PATH -m drenv delete envs/regional-dr-monitoring.yaml || true
-        fi
+        # Use python3 directly since drenv is now installed
+        python3 -m drenv delete envs/regional-dr-monitoring.yaml || true
+        # Clean up any remaining profiles
+        for profile in $(minikube profile list 2>/dev/null | grep "rdr-monitoring" | awk '{print $2}' || true); do
+            log_info "Ensuring profile $profile is deleted..."
+            minikube delete --profile="$profile" 2>/dev/null || true
+        done
     else
         log_info "Skipping environment creation, proceeding to monitoring setup"
         setup_monitoring_only=true
     fi
+elif minikube profile list 2>/dev/null | grep -q "rdr-monitoring"; then
+    log_warning "Found non-running rdr-monitoring profiles, cleaning them up..."
+    python3 -m drenv delete envs/regional-dr-monitoring.yaml || true
+    for profile in $(minikube profile list 2>/dev/null | grep "rdr-monitoring" | awk '{print $2}' || true); do
+        log_info "Deleting profile: $profile"
+        minikube delete --profile="$profile" 2>/dev/null || true
+    done
 fi
 
 if [ "$setup_monitoring_only" != "true" ]; then
     # Setup host environment
     log_info "Setting up host environment for drenv..."
-    /home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python -m drenv setup envs/regional-dr-monitoring.yaml
+    python3 -m drenv setup envs/regional-dr-monitoring.yaml
 
     # Start the enhanced regional DR environment
     log_info "Starting Regional DR environment with monitoring..."
     log_warning "This process takes 20-30 minutes. Please be patient..."
     echo ""
     
-    # Use the correct virtual environment path
-    PYTHON_PATH="/home/nlevanon/workspace/ramenfork/ramen/.venv/bin/python"
-    if [ ! -f "$PYTHON_PATH" ]; then
-        # Fallback to system python if venv not found
-        log_warning "Virtual environment not found, using system python"
-        python3 -m drenv start envs/regional-dr-monitoring.yaml
-    else
-        $PYTHON_PATH -m drenv start envs/regional-dr-monitoring.yaml
-    fi
+    # Use python3 directly since drenv is now installed
+    python3 -m drenv start envs/regional-dr-monitoring.yaml
     
     if [ $? -eq 0 ]; then
         log_success "Regional DR environment started successfully!"

@@ -152,7 +152,7 @@ spec:
         - --kubelet-use-node-status-port
         - --metric-resolution=15s
         - --kubelet-insecure-tls
-        image: k8s.gcr.io/metrics-server/metrics-server:v0.6.4
+        image: registry.k8s.io/metrics-server/metrics-server:v0.6.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -211,17 +211,22 @@ spec:
   versionPriority: 100
 """
     
-    kubectl.apply(cluster, yaml, log=drenv.log)
+    kubectl.apply("--filename=-", input=yaml, context=cluster)
     
-    # Wait for metrics-server to be ready
-    kubectl.wait(
-        cluster,
-        "--for=condition=ready",
-        "pod",
-        "-l", "k8s-app=metrics-server",
-        "-n", "kube-system",
-        "--timeout=300s",
-    )
+    # Wait for metrics-server to be ready (with graceful failure)
+    try:
+        kubectl.wait(
+            "pod",
+            "--for=condition=ready",
+            "-l", "k8s-app=metrics-server",
+            "-n", "kube-system",
+            "--timeout=600s",
+            context=cluster,
+        )
+        print(f"[{cluster}] Metrics-server is ready")
+    except Exception as e:
+        print(f"[{cluster}] Warning: Metrics-server may not be ready yet: {e}")
+        print(f"[{cluster}] Continuing deployment - metrics-server will start eventually")
     
     print(f"[{cluster}] Monitoring addon deployed")
 

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rook-ceph-operator-config
+  namespace: rook-ceph
+data:
+  ROOK_LOG_LEVEL: "INFO"
+  ROOK_CEPH_STATUS_CHECK_INTERVAL: "60s"
+  ROOK_CEPH_COMMANDS_TIMEOUT_DURATION: "15s"
+  ROOK_CEPH_UNREACHABLE_NODE_TOLERATION_SECONDS: "5"
+  CSI_ENABLE_OMAP_GENERATOR: "false"
+  CSI_ENABLE_HOST_NETWORK: "true"
+  CSI_PLUGIN_TOLERANCE: |
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+  CSI_PROVISIONER_TOLERANCE: |
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists

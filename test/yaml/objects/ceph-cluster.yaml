@@ -1,0 +1,46 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v17.2.6
+  dataDirHostPath: /var/lib/rook
+  mon:
+    count: 1
+    allowMultiplePerNode: false
+  mgr:
+    count: 1
+  dashboard:
+    enabled: true
+    ssl: true
+  monitoring:
+    enabled: false
+  network:
+    connections:
+      requireMsgr2: false
+  placement:
+    all:
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+  resources:
+    mgr:
+      requests:
+        cpu: "125m"
+        memory: "512Mi"
+    mon:
+      requests:
+        cpu: "125m"
+        memory: "512Mi"
+    osd:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+  storage:
+    useAllNodes: true
+    useAllDevices: false
+    deviceFilter: "^vd[b-z]"
+    config:
+      osdsPerDevice: "1"

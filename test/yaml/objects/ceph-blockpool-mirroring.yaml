@@ -1,0 +1,16 @@
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: rbd-mirroring-pool
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+    size: 1
+    requireSafeReplicaSize: false
+  mirroring:
+    enabled: true
+    mode: image
+    peers:
+      secretNames:
+      - pool-peer-token-rook-ceph-rbd-mirroring-pool
